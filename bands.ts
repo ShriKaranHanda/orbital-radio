@@ -1,0 +1,1 @@
+// Use the Ka links - 27.5 - 29.1 GHz uplink and 17.8 - 18.6 downlink
