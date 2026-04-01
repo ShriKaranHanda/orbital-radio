@@ -10,6 +10,7 @@ type SimulationState = {
 type SimulationConfig = {
   tle: TleElements;
 
+  // TODO: Will be taken from UI, default will be set
   groundStation: {
     name: string;
     latDeg: number;
