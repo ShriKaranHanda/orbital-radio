@@ -6,9 +6,9 @@ export function latLonToUnitVector(latDeg: number, lonDeg: number) {
   const cosLat = Math.cos(lat);
 
   return new Vector3(
-    cosLat * Math.sin(lon),
-    Math.sin(lat),
     cosLat * Math.cos(lon),
+    Math.sin(lat),
+    -cosLat * Math.sin(lon),
   ).normalize();
 }
 
