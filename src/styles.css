@@ -39,6 +39,59 @@ button {
     #02040a;
 }
 
+.timeline-panel {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  left: 24px;
+  z-index: 10;
+  display: grid;
+  gap: 14px;
+  padding: 16px 18px;
+  color: #edf5ff;
+  background: rgba(9, 14, 24, 0.88);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(16px);
+}
+
+.timeline-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.timeline-summary div {
+  min-width: 0;
+}
+
+.timeline-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.timeline-summary strong {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.timeline-slider {
+  width: 100%;
+  margin: 0;
+}
+
+.timeline-endpoints {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .globe-scene {
   position: absolute;
   inset: 0;
@@ -121,7 +174,7 @@ button {
   right: 24px;
   z-index: 10;
   width: min(390px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
+  max-height: calc(100vh - 172px);
   overflow: auto;
 }
 
