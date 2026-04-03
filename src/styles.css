@@ -318,6 +318,13 @@ button {
   overflow-wrap: anywhere;
 }
 
+.detail-note {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 @keyframes accordion-down {
   from {
     height: 0;

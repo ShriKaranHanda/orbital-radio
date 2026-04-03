@@ -36,6 +36,10 @@ import {
   getSatelliteInertialLocalVector,
   getSatellitePathLocalPositions,
 } from "../lib/simulation-visuals";
+import {
+  getGroundStationAntennaDirectionLocalVector,
+  getGroundStationElevationArcLocalPositions,
+} from "../lib/ground-station";
 import type { GroundStation } from "../types";
 
 declare global {
@@ -76,6 +80,8 @@ type SceneHandles = {
   cloudLayer: Mesh;
   stationMarker: Mesh;
   stationPulse: Mesh;
+  antennaRay: Line;
+  elevationArc: Line;
   satelliteMarker: Mesh;
   satelliteGlow: Mesh;
   stationWorldPosition: Vector3;
@@ -220,6 +226,50 @@ export function GlobeScene({
     stationPulse.position.copy(stationMarker.position);
     earthGroup.add(stationPulse);
 
+    const antennaDirection = getGroundStationAntennaDirectionLocalVector(groundStation);
+    const stationPosition = new Vector3(
+      stationLocalPosition.x,
+      stationLocalPosition.y,
+      stationLocalPosition.z,
+    );
+    const antennaEnd = stationPosition
+      .clone()
+      .add(
+        new Vector3(antennaDirection.x, antennaDirection.y, antennaDirection.z).multiplyScalar(
+          0.62,
+        ),
+      );
+    const antennaRay = new Line(
+      new BufferGeometry().setFromPoints([stationPosition, antennaEnd]),
+      new LineBasicMaterial({
+        color: "#22c55e",
+        transparent: true,
+        opacity: 0.92,
+      }),
+    );
+    earthGroup.add(antennaRay);
+
+    const elevationArc = new Line(
+      new BufferGeometry(),
+      new LineBasicMaterial({
+        color: "#a3e635",
+        transparent: true,
+        opacity: 0.78,
+      }),
+    );
+    elevationArc.geometry.setAttribute(
+      "position",
+      new Float32BufferAttribute(
+        getGroundStationElevationArcLocalPositions(
+          groundStation,
+          EARTH_RADIUS * 1.018,
+          0.22,
+        ),
+        3,
+      ),
+    );
+    earthGroup.add(elevationArc);
+
     const satellitePath = new Line(
       new BufferGeometry(),
       new LineBasicMaterial({
@@ -271,6 +321,8 @@ export function GlobeScene({
       cloudLayer,
       stationMarker,
       stationPulse,
+      antennaRay,
+      elevationArc,
       satelliteMarker,
       satelliteGlow,
       stationWorldPosition,
@@ -449,6 +501,10 @@ export function GlobeScene({
       atmosphere.geometry.dispose();
       stationMarker.geometry.dispose();
       stationPulse.geometry.dispose();
+      antennaRay.geometry.dispose();
+      (antennaRay.material as LineBasicMaterial).dispose();
+      elevationArc.geometry.dispose();
+      (elevationArc.material as LineBasicMaterial).dispose();
       satelliteMarker.geometry.dispose();
       satelliteGlow.geometry.dispose();
       satellitePath.geometry.dispose();

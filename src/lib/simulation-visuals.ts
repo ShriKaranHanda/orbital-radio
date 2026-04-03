@@ -125,7 +125,7 @@ function scaleMetersVectorToScene(
 
   return {
     x: vectorMeters.x * scale,
-    y: vectorMeters.y * scale,
-    z: vectorMeters.z * scale,
+    y: vectorMeters.z * scale,
+    z: -vectorMeters.y * scale,
   };
 }

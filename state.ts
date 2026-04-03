@@ -56,6 +56,23 @@ export type GroundStationConfig = {
   lonDeg: number;
   altitudeM: number;
   minElevationDeg: number;
+  horizonMask: readonly GroundStationHorizonMaskPoint[];
+  antenna: GroundStationAntennaConfig;
+};
+
+export type GroundStationHorizonMaskPoint = {
+  azimuthDeg: number;
+  minElevationDeg: number;
+};
+
+export type GroundStationAntennaConfig = {
+  mountType: "az-el";
+  pointingMode: "fixed";
+  azimuthDeg: number;
+  elevationDeg: number;
+  dishDiameterM: number;
+  gainDbi: number;
+  polarization: "RHCP";
 };
 
 export type RadioLinkConfig = {
@@ -265,11 +282,30 @@ export const DEFAULT_SIMULATION_CONFIG: SimulationConfig = {
   },
   // TODO: Update Bengaluru ground station to Texas ground station
   groundStation: {
-    name: "Bengaluru Ground Station",
-    latDeg: 12.9716,
-    lonDeg: 77.5946,
-    altitudeM: 920,
-    minElevationDeg: 25,
+    name: "Starbase Ground Station",
+    latDeg: 25.98973764557198,
+    lonDeg: -97.18477949691587,
+    altitudeM: 10,
+    minElevationDeg: 10,
+    horizonMask: [
+      { azimuthDeg: 0, minElevationDeg: 8 },
+      { azimuthDeg: 45, minElevationDeg: 10 },
+      { azimuthDeg: 90, minElevationDeg: 14 },
+      { azimuthDeg: 135, minElevationDeg: 19 },
+      { azimuthDeg: 180, minElevationDeg: 27 },
+      { azimuthDeg: 225, minElevationDeg: 21 },
+      { azimuthDeg: 270, minElevationDeg: 13 },
+      { azimuthDeg: 315, minElevationDeg: 9 },
+    ],
+    antenna: {
+      mountType: "az-el",
+      pointingMode: "fixed",
+      azimuthDeg: 92,
+      elevationDeg: 31,
+      dishDiameterM: 2.4,
+      gainDbi: 43.5,
+      polarization: "RHCP",
+    },
   },
   radio: {
     downlink: {
@@ -295,8 +331,12 @@ export const DEFAULT_SIMULATION_CONFIG: SimulationConfig = {
   },
 };
 
-const TLE_EPOCH_UNIX_MS = tleEpochToUnixMs(DEFAULT_SIMULATION_CONFIG.tle.epoch);
-const DEFAULT_SIMULATION_DURATION_SECONDS = 6000;
+const TLE_EPOCH_UNIX_MS = tleEpochToUnixMs({
+  year: 2026,
+  dayOfYear: 102,
+  fractionalDay: 0.1771412037037,
+});
+const DEFAULT_SIMULATION_DURATION_SECONDS = 1500;
 
 export const DEFAULT_SIMULATION_CLOCK: SimulationClock = {
   startUnixMs: TLE_EPOCH_UNIX_MS,

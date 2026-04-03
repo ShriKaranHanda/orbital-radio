@@ -97,6 +97,14 @@ test("globe remains draggable before selection and after deselection", async ({ 
   await expect.poll(() => page.getByText("Bengaluru Ground Station").count()).toBeGreaterThan(0);
   await waitForCameraIdle(page);
   expect(await cameraDistance(page)).toBeLessThan(4.5);
+  await expect(page.getByRole("button", { name: "Location" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Visibility Constraints" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Antenna Setup" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Satellite Geometry" })).toBeVisible();
+
+  const initialSlantRange = await stationMetricValue(page, "Slant range");
+  await setTimelineFrame(page, 120);
+  expect(await stationMetricValue(page, "Slant range")).not.toBe(initialSlantRange);
 
   const selectedDirection = normalize(await cameraPosition(page));
   await page.getByLabel("Close").click();
@@ -187,6 +195,14 @@ async function cameraPosition(page: Page) {
 
 async function cameraDistance(page: Page) {
   return page.evaluate(() => window.__globeDebug!.getCameraDistance());
+}
+
+async function stationMetricValue(page: Page, label: string) {
+  return page
+    .locator(".station-card .metric")
+    .filter({ hasText: label })
+    .locator("strong")
+    .textContent();
 }
 
 async function waitForCameraIdle(page: Page) {
