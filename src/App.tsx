@@ -120,6 +120,8 @@ export function App() {
         clock={simulationState.clock}
         groundStation={groundStation}
         frame={visualFrame}
+        frames={simulationState.frames}
+        physicalConstants={simulationState.physicalConstants}
         selectedStation={selectedStation}
         onGroundStationHover={setHover}
         onGroundStationSelect={setSelectedStation}

@@ -1,3 +1,5 @@
+import { buildSatelliteRecord, propagateSatelliteFrame } from "./src/lib/orbit";
+
 export type SimulationState = {
   config: SimulationConfig;
   clock: SimulationClock;
@@ -123,9 +125,23 @@ export type HardwareNominalConstants = {
   };
 };
 
+export type Cartesian3 = {
+  x: number;
+  y: number;
+  z: number;
+};
+
+export type SatelliteFrameState = {
+  positionEciM: Cartesian3;
+  velocityEciMps: Cartesian3;
+  positionEcefM: Cartesian3;
+  velocityEcefMps: Cartesian3;
+};
+
 export type SimulationFrame = {
   index: number;
   currentUnixMs: number;
+  satellite: SatelliteFrameState;
 };
 
 export const PHYSICAL_CONSTANTS: PhysicalConstants = {
@@ -280,7 +296,7 @@ export const DEFAULT_SIMULATION_CONFIG: SimulationConfig = {
 };
 
 const TLE_EPOCH_UNIX_MS = tleEpochToUnixMs(DEFAULT_SIMULATION_CONFIG.tle.epoch);
-const DEFAULT_SIMULATION_DURATION_SECONDS = 180;
+const DEFAULT_SIMULATION_DURATION_SECONDS = 6000;
 
 export const DEFAULT_SIMULATION_CLOCK: SimulationClock = {
   startUnixMs: TLE_EPOCH_UNIX_MS,
@@ -289,7 +305,10 @@ export const DEFAULT_SIMULATION_CLOCK: SimulationClock = {
   stepSeconds: 1,
 };
 
-export function buildSimulationFrames(clock: SimulationClock): SimulationFrame[] {
+export function buildSimulationFrames(
+  config: Pick<SimulationConfig, "tle">,
+  clock: SimulationClock,
+): SimulationFrame[] {
   if (clock.stepSeconds <= 0) {
     throw new Error("Simulation clock stepSeconds must be greater than zero.");
   }
@@ -299,6 +318,7 @@ export function buildSimulationFrames(clock: SimulationClock): SimulationFrame[]
   }
 
   const stepMs = clock.stepSeconds * 1_000;
+  const satelliteRecord = buildSatelliteRecord(config.tle);
   const frames: SimulationFrame[] = [];
 
   for (
@@ -309,6 +329,7 @@ export function buildSimulationFrames(clock: SimulationClock): SimulationFrame[]
     frames.push({
       index,
       currentUnixMs,
+      satellite: propagateSatelliteFrame(satelliteRecord, currentUnixMs),
     });
   }
 
@@ -321,7 +342,7 @@ export const DEFAULT_SIMULATION_STATE: SimulationState = {
   mcsTable: MCS_TABLE,
   physicalConstants: PHYSICAL_CONSTANTS,
   hardwareNominalConstants: HARDWARE_NOMINAL_CONSTANTS,
-  frames: buildSimulationFrames(DEFAULT_SIMULATION_CLOCK),
+  frames: buildSimulationFrames(DEFAULT_SIMULATION_CONFIG, DEFAULT_SIMULATION_CLOCK),
 };
 
 function tleEpochToUnixMs(epoch: TleElements["epoch"]): number {
