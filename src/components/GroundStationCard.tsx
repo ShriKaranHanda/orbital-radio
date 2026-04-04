@@ -1,6 +1,6 @@
+import type { GroundStationDerivedState } from "../../state";
 import { X } from "lucide-react";
 import { formatCoordinate } from "../lib/geo";
-import type { GroundStationDerivedState } from "../lib/ground-station";
 import type { GroundStation } from "../types";
 import {
   Accordion,

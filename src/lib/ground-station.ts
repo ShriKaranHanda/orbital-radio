@@ -1,26 +1,14 @@
 import type {
   Cartesian3,
   GroundStationConfig,
+  GroundStationDerivedState,
   PhysicalConstants,
-  SimulationFrame,
+  SatelliteFrameState,
 } from "../../state";
 
 const DEG_TO_RAD = Math.PI / 180;
 const RAD_TO_DEG = 180 / Math.PI;
 const FULL_CIRCLE_DEG = 360;
-
-export type GroundStationDerivedState = {
-  azimuthDeg: number;
-  elevationDeg: number;
-  slantRangeM: number;
-  horizonMaskElevationDeg: number;
-  requiredElevationDeg: number;
-  isAboveGeometricHorizon: boolean;
-  clearsOperationalMask: boolean;
-  pointingAzimuthErrorDeg: number;
-  pointingElevationErrorDeg: number;
-  pointingSeparationDeg: number;
-};
 
 type Vec3Like = {
   x: number;
@@ -31,11 +19,11 @@ type Vec3Like = {
 export function deriveGroundStationState(
   groundStation: GroundStationConfig,
   physicalConstants: PhysicalConstants,
-  frame: SimulationFrame,
+  satellite: SatelliteFrameState,
 ): GroundStationDerivedState {
   const groundStationEcef = getGroundStationEcef(groundStation, physicalConstants);
   const relativeVector = subtractVectors(
-    frame.satellite.positionEcefM,
+    satellite.positionEcefM,
     groundStationEcef,
   );
   const { eastM, northM, upM } = projectEcefVectorToEnu(relativeVector, groundStation);
