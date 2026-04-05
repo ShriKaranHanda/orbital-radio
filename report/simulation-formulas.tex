@@ -1,0 +1,1290 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+
+\title{Hardware-First Starlink Pass Simulation: Formula Report}
+\author{Constellation Take-Home}
+\date{April 2026}
+
+\newcommand{\vect}[1]{\mathbf{#1}}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\clip}{\operatorname{clip}}
+\newcommand{\argmax}{\operatorname*{arg\,max}}
+\newcommand{\sgn}{\operatorname{sgn}}
+\newcommand{\atanTwo}{\operatorname{atan2}}
+
+\begin{document}
+\maketitle
+
+\section{Purpose}
+
+This document defines the simulation mathematically before any new implementation work.
+The scope is a single bidirectional pass of one real Starlink satellite over one fixed
+ground station. The implementation will precompute a discrete sequence of frames, and
+every future visualization will read only from those frames.
+
+The orbital propagator is the only external closed-form block:
+\begin{equation}
+  \left( \vect{r}^{ECI}_k, \vect{v}^{ECI}_k \right)
+  =
+  \operatorname{SGP4}(\mathrm{TLE}, t_k).
+\end{equation}
+This report treats the SGP4 outputs as the upstream state inputs and makes every
+downstream equation explicit.
+
+\section{Simulation Sequence}
+
+The simulation runs at a fixed step size
+\begin{equation}
+  \Delta t = 1 \ \mathrm{s},
+\end{equation}
+over frame indices
+\begin{equation}
+  k \in \{0,1,\dots,K-1\},
+  \qquad
+  t_k = t_0 + k \Delta t.
+\end{equation}
+
+At each second, the per-frame dependency order is:
+\begin{enumerate}
+  \item Propagate orbital state with SGP4.
+  \item Transform the satellite state into ECEF.
+  \item Derive ground geometry: azimuth, elevation, range, range rate, Doppler.
+  \item Evaluate operational visibility and the pass window.
+  \item Evaluate active faults for the current second.
+  \item Compute steering, phased-array degradation, RF losses, PA operating point,
+        oscillator error, and ground-station transmit/receive pointing.
+  \item Compute downlink and uplink link budgets, effective SNR, EVM, MCS, BER, and PER.
+  \item Generate deterministic sampled packet traces for both directions.
+  \item Aggregate retransmissions, latency, jitter, loss, and goodput for both directions.
+  \item Update dynamic states for the next second: temperatures, battery energy,
+        compute queue, and traffic queues.
+\end{enumerate}
+
+This ordering avoids circular dependencies: frame-$k$ outputs depend on the dynamic state
+at the start of second $k$, and the dynamic state is then advanced to $k+1$.
+
+\section{Independent Parameters}
+
+\subsection{Configuration Inputs}
+
+\begin{longtable}{p{0.18\textwidth} p{0.22\textwidth} p{0.50\textwidth}}
+\toprule
+Symbol & Meaning & Source / current scenario \\
+\midrule
+\endhead
+$\mathrm{TLE}$ & Two-line element set & Real Starlink TLE, currently STARLINK-1008 / NORAD 44714 \\
+$t_0, K, \Delta t$ & Simulation clock & Current repo window: 2026-04-12 04:15:05 UTC to 2026-04-12 04:40:04 UTC at 1 s cadence \\
+$\phi_g, \lambda_g, h_g$ & Ground-station latitude, longitude, altitude & Current repo: $25.9897376^\circ$, $-97.1847795^\circ$, 10 m \\
+$E_{\min}$ & Minimum operational elevation & Current repo: $10^\circ$ \\
+$M(\alpha)$ & Horizon mask vs azimuth & Piecewise-linear interpolation of configured mask samples \\
+$\alpha_{ant,0}, E_{ant,0}$ & Initial ground antenna boresight azimuth/elevation & Current repo: $92^\circ$, $31^\circ$ \\
+$G^{gs,rx}_{nom}, G^{gs,tx}_{nom}$ & Ground-station nominal boresight receive / transmit gains & Current repo has 43.5 dBi receive gain; uplink transmit gain defaults to the same aperture gain \\
+$f_c^{dl}, B^{dl}$ & Downlink carrier frequency and bandwidth & Current repo: 18.2 GHz, 250 MHz \\
+$f_c^{ul}, B^{ul}$ & Uplink carrier frequency and bandwidth & Current repo: 28.3 GHz, 250 MHz \\
+$L^{dl}_{off}, L^{ul}_{off}$ & Offered load for downlink and uplink & Current repo has one shared offered load; bidirectional implementation should split this into per-direction loads, defaulting $L^{ul}_{off}=L^{dl}_{off}$ if omitted \\
+$L^{dl}_{pkt}, L^{ul}_{pkt}$ & Packet size for downlink and uplink & Current repo has one shared packet size; bidirectional implementation should default both directions to that value \\
+$N^{dl}_{retx,max}, N^{ul}_{retx,max}$ & Maximum retransmissions per direction & Current repo has one shared retransmission limit; bidirectional implementation should default both directions to that value \\
+$\tau^{dl}_{retx}, \tau^{ul}_{retx}$ & Retransmission wait per direction & Current repo has one shared retransmission delay; bidirectional implementation should default both directions to that value \\
+$s$ & Deterministic simulation seed & Current repo: 44714 \\
+$\mathcal{F}$ & Scenario fault list & Time-bounded deterministic faults \\
+$N_{elem,0}$ & Nominal active array elements & Current repo default: 256 \\
+$P_{out,\min}, P_{out,nom}, P_{out,\max}$ & PA operating limits & Current repo defaults: -5 dBW, 6 dBW, 9 dBW \\
+$IBO_{nom}$ & Nominal PA output backoff & Current repo default: 2 dB \\
+$NF_0$ & Nominal receiver noise figure & Current repo default: 1.8 dB \\
+\bottomrule
+\end{longtable}
+
+\subsection{Implementation Constants to Be Chosen Explicitly}
+
+The following are independent model coefficients that the implementation must define in
+one formula-focused module, not inline in UI code:
+
+\begin{longtable}{p{0.20\textwidth} p{0.68\textwidth}}
+\toprule
+Symbol group & Meaning \\
+\midrule
+\endhead
+$G_{elem}, q_{scan}, \Delta \phi_{LSB}$ & Element gain, scan-loss exponent, phase-quantization step \\
+$\theta_{FOR}$ & Maximum electronic field of regard \\
+$k_{NF}, L_{filter}, L_{conv}, L_{impl}$ & RF front-end thermal sensitivity and fixed losses \\
+$k_{comp}, P_{1dB}$ & PA compression coefficient and 1 dB compression reference \\
+$\alpha_f, \dot{f}_{drift}, \sigma_{t,0}, k_t$ & Oscillator thermal drift, frequency drift rate, jitter coefficients \\
+$C_i, R_i, A_i, \eta_i$ & Thermal capacitance, thermal resistance, exposed area, and coupling coefficients for subsystem $i$ \\
+$A_{sol}, \eta_{sol}, E_{batt,\max}, P_{batt,\max}$ & Solar and battery parameters \\
+$C_{comp}, c_{beam}, c_{dop}, c^{dl}_{modem}, c^{ul}_{modem}, c_{tm}$ & Compute capacity and workload coefficients \\
+$\dot{\alpha}_{max}, \dot{E}_{max}, \theta^{3dB}_{gs}$ & Ground-station azimuth slew rate, elevation slew rate, and shared aperture beamwidth used for both ground TX and RX pointing loss \\
+$P^{gs}_{tx,nom}, P^{gs}_{tx,\min}, P^{gs}_{tx,\max}, L^{gs}_{tx,rf}, NF^{gs}_{nom}$ & Ground-station nominal uplink power, power limits, fixed TX RF loss, and nominal RX noise figure \\
+$\sigma^{gs}_{P}, \sigma^{gs}_{G}, \sigma^{gs}_{NF}, \sigma^{gs}_{f}, \sigma^{gs}_{EVM}$ & Ground-station stochastic standard deviations for TX power, aperture gain, RX noise figure, reference offset, and residual transmitter impairment \\
+$OH^{dl}_{mac}, OH^{ul}_{mac}, N^{dl}_{sample,max}, N^{ul}_{sample,max}, \tau_{proc}$ & Direction-specific MAC overhead, sample-trace caps, and fixed processing latency \\
+$\{(\eta^{dl}_m, \gamma^{dl}_{req,m}, a^{dl}_m, BER^{dl}_{min,m}, BER^{dl}_{max,m})\}, \{(\eta^{ul}_m, \gamma^{ul}_{req,m}, a^{ul}_m, BER^{ul}_{min,m}, BER^{ul}_{max,m})\}$ & Direction-specific MCS tables for downlink and uplink \\
+\bottomrule
+\end{longtable}
+
+\section{Dynamic State Variables}
+
+The simulation carries the following dynamic state from frame to frame:
+\begin{align}
+  T^{arr}_k, \ T^{pa}_k, \ T^{rf}_k, \ T^{osc}_k
+  & \quad \text{array, PA, RF, and oscillator temperatures}, \\
+  \alpha^{gs}_k, \ E^{gs}_k
+  & \quad \text{actual ground-station tracked boresight azimuth and elevation}, \\
+  E^{batt}_k
+  & \quad \text{battery energy}, \\
+  q^{comp}_k
+  & \quad \text{compute backlog in work units}, \\
+  q^{dl}_k, \ q^{ul}_k
+  & \quad \text{downlink and uplink network backlogs in packets}.
+\end{align}
+
+All other values in frame $k$ are algebraic outputs of the current dynamic state,
+current propagated orbit state, and current configuration.
+
+\section{Orbital State and Coordinate Transforms}
+
+\subsection{Satellite State}
+
+\begin{equation}
+  \left( \vect{r}^{ECI}_k, \vect{v}^{ECI}_k \right)
+  =
+  \operatorname{SGP4}(\mathrm{TLE}, t_k).
+\end{equation}
+
+Let $\theta_{g,k}$ denote Greenwich sidereal angle at time $t_k$.
+The standard ECI-to-ECEF transform is
+\begin{align}
+  \vect{r}^{ECEF}_k
+  &= R_3(\theta_{g,k}) \vect{r}^{ECI}_k, \\
+  \vect{v}^{ECEF}_k
+  &= R_3(\theta_{g,k}) \vect{v}^{ECI}_k
+     - \vect{\omega}_{\oplus} \times \vect{r}^{ECEF}_k,
+\end{align}
+where
+\begin{equation}
+  \vect{\omega}_{\oplus}
+  =
+  \begin{bmatrix}
+    0 \\ 0 \\ \omega_{\oplus}
+  \end{bmatrix},
+  \qquad
+  \omega_{\oplus} = 7.2921150 \times 10^{-5} \ \mathrm{rad/s}.
+\end{equation}
+
+\subsection{Ground-Station ECEF Position}
+
+Using WGS84,
+\begin{align}
+  e^2 &= f(2-f), \\
+  N_\phi &= \frac{a}{\sqrt{1 - e^2 \sin^2 \phi_g}},
+\end{align}
+and
+\begin{equation}
+  \vect{r}^{gs}
+  =
+  \begin{bmatrix}
+    (N_\phi + h_g)\cos \phi_g \cos \lambda_g \\
+    (N_\phi + h_g)\cos \phi_g \sin \lambda_g \\
+    (N_\phi(1-e^2) + h_g)\sin \phi_g
+  \end{bmatrix}.
+\end{equation}
+
+\section{Geometry, Visibility, and Pass Window}
+
+\subsection{Relative Geometry}
+
+The line-of-sight vector from ground station to satellite is
+\begin{equation}
+  \vect{\rho}_k = \vect{r}^{ECEF}_k - \vect{r}^{gs}.
+\end{equation}
+
+Project $\vect{\rho}_k$ into the local east-north-up frame:
+\begin{equation}
+  \begin{bmatrix}
+    e_k \\ n_k \\ u_k
+  \end{bmatrix}
+  =
+  \begin{bmatrix}
+    -\sin \lambda_g & \cos \lambda_g & 0 \\
+    -\sin \phi_g \cos \lambda_g & -\sin \phi_g \sin \lambda_g & \cos \phi_g \\
+    \cos \phi_g \cos \lambda_g & \cos \phi_g \sin \lambda_g & \sin \phi_g
+  \end{bmatrix}
+  \vect{\rho}_k.
+\end{equation}
+
+Then
+\begin{align}
+  R_k &= \norm{\vect{\rho}_k}, \\
+  \alpha_k &= \operatorname{mod}\left(\atanTwo(e_k, n_k), 2\pi \right), \\
+  E_k &= \atanTwo\left(u_k, \sqrt{e_k^2+n_k^2} \right).
+\end{align}
+
+\subsection{Horizon Mask and Operational Visibility}
+
+Let the configured horizon mask consist of azimuth-elevation samples
+$\{(\alpha_i, E_i^{mask})\}$ sorted by azimuth.
+For $\alpha_k$ between adjacent samples $i$ and $i+1$, define the piecewise-linear mask
+\begin{equation}
+  M(\alpha_k)
+  =
+  E_i^{mask}
+  +
+  \frac{\alpha_k - \alpha_i}{\alpha_{i+1} - \alpha_i}
+  \left(E_{i+1}^{mask} - E_i^{mask}\right).
+\end{equation}
+
+The required elevation is
+\begin{equation}
+  E^{req}_k = \max(E_{\min}, M(\alpha_k)).
+\end{equation}
+
+Operational visibility is
+\begin{equation}
+  V_k = \mathbf{1}\{E_k \ge E^{req}_k\}.
+\end{equation}
+
+\subsection{Range Rate and Doppler}
+
+Because the ground station is fixed in ECEF,
+\begin{align}
+  \dot{R}_k
+  &= \frac{\vect{\rho}_k^\top \vect{v}^{ECEF}_k}{R_k}, \\
+  f^{dop,dl}_k
+  &= - \frac{\dot{R}_k}{c} f_c^{dl}, \\
+  f^{dop,ul}_k
+  &= - \frac{\dot{R}_k}{c} f_c^{ul}.
+\end{align}
+
+\subsection{Pass Window}
+
+Define the explicit pass window
+\begin{align}
+  k_{in} &= \min\{k : V_k = 1\}, \\
+  k_{out} &= \max\{k : V_k = 1\}, \\
+  k_{apex} &= \argmax_{k:V_k=1} E_k.
+\end{align}
+
+The pass duration is
+\begin{equation}
+  T_{pass} = (k_{out} - k_{in} + 1)\Delta t.
+\end{equation}
+
+For the current repo state, the precomputed pass window inside the 1500-frame clock is:
+\begin{align}
+  k_{in} &= 543 \quad (2026\text{-}04\text{-}12\ 04{:}24{:}08 \ \mathrm{UTC}), \\
+  k_{apex} &= 726 \quad (2026\text{-}04\text{-}12\ 04{:}27{:}11 \ \mathrm{UTC}), \\
+  k_{out} &= 860 \quad (2026\text{-}04\text{-}12\ 04{:}29{:}25 \ \mathrm{UTC}).
+\end{align}
+
+\section{Fault Activation}
+
+Each deterministic fault $j \in \mathcal{F}$ is parameterized by a start time
+$t^{start}_j$, a duration $\tau_j$, a type $\tau^{kind}_j$, and a severity $\sigma_j$.
+Its activation state at second $k$ is
+\begin{equation}
+  F_{j,k}
+  =
+  \mathbf{1}\{t^{start}_j \le t_k < t^{start}_j + \tau_j\}.
+\end{equation}
+
+Any fault contribution to a parameter $x$ is applied additively or multiplicatively via
+\begin{equation}
+  \Delta x^{fault}_k = \sum_{j \in \mathcal{F}_x} F_{j,k} \sigma_j w_{x,j},
+\end{equation}
+where $w_{x,j}$ is the per-fault coupling coefficient for parameter $x$.
+
+\section{Satellite Attitude, Steering, and Ground-Station Pointing}
+
+\subsection{Satellite Steering Angle}
+
+Assume a nadir-pointing spacecraft bus and an Earth-facing electronically steered array.
+The array boresight unit vector is
+\begin{equation}
+  \hat{n}^{arr}_k = - \frac{\vect{r}^{ECEF}_k}{\norm{\vect{r}^{ECEF}_k}}.
+\end{equation}
+
+The line of sight from satellite to ground station is
+\begin{equation}
+  \hat{\ell}_k = \frac{\vect{r}^{gs} - \vect{r}^{ECEF}_k}{R_k}.
+\end{equation}
+
+The required steering angle is
+\begin{equation}
+  \theta^{steer}_k = \arccos \left( \hat{n}^{arr}_k \cdot \hat{\ell}_k \right).
+\end{equation}
+
+The field-of-regard gate is
+\begin{equation}
+  V^{FOR}_k = \mathbf{1}\{\theta^{steer}_k \le \theta_{FOR}\}.
+\end{equation}
+
+\subsection{Ground-Station Steering Mechanics}
+
+The ground station mechanically tracks the satellite in azimuth and elevation.
+The desired tracked boresight is taken directly from the current satellite look angles:
+\begin{equation}
+  \alpha^{cmd}_k = \alpha_k,
+  \qquad
+  E^{cmd}_k = E_k.
+\end{equation}
+
+Let the wrapped azimuth command error be
+\begin{equation}
+  \Delta \alpha^{cmd}_k
+  =
+  \operatorname{mod}\left(\alpha^{cmd}_k - \alpha^{gs}_k + \pi, 2\pi\right) - \pi,
+\end{equation}
+and the elevation command error be
+\begin{equation}
+  \Delta E^{cmd}_k = E^{cmd}_k - E^{gs}_k.
+\end{equation}
+
+With slew-rate limits $\dot{\alpha}_{max}$ and $\dot{E}_{max}$, the actual boresight
+state evolves as
+\begin{align}
+  \alpha^{gs}_{k+1}
+  &=
+  \alpha^{gs}_k
+  +
+  \clip\left(
+    \Delta \alpha^{cmd}_k,
+    -\dot{\alpha}_{max}\Delta t,
+    \dot{\alpha}_{max}\Delta t
+  \right), \\
+  E^{gs}_{k+1}
+  &=
+  E^{gs}_k
+  +
+  \clip\left(
+    \Delta E^{cmd}_k,
+    -\dot{E}_{max}\Delta t,
+    \dot{E}_{max}\Delta t
+  \right).
+\end{align}
+
+The initial tracking state is taken from configuration:
+\begin{equation}
+  \alpha^{gs}_0 = \alpha_{ant,0},
+  \qquad
+  E^{gs}_0 = E_{ant,0}.
+\end{equation}
+
+\subsection{Simple Stochastic Ground-Station Terminal Model}
+
+The ground station is intentionally much simpler than the satellite, but it should still
+be realistic. Rather than a detailed thermal/power/compute stack, it uses bounded
+deterministic stochastic perturbations around nominal terminal behavior.
+
+For each second, define a direction-independent pseudo-random source
+\begin{align}
+  x^{gs}_{k,0}
+  &= \left(s + 2654435761k\right)\bmod 2^{32}, \\
+  x^{gs}_{k,n+1}
+  &= \left(1664525x^{gs}_{k,n} + 1013904223\right)\bmod 2^{32}, \\
+  u^{gs}_{k,n}
+  &= \frac{x^{gs}_{k,n}}{2^{32}},
+\end{align}
+and map it into bounded zero-mean perturbations
+\begin{equation}
+  \epsilon^{gs}_{k,n}
+  =
+  \clip\left(\sqrt{12}\left(u^{gs}_{k,n} - \tfrac{1}{2}\right), -2, 2\right).
+\end{equation}
+
+The ground-terminal per-second perturbations are then
+\begin{align}
+  \delta P^{gs}_k &= \sigma^{gs}_{P}\epsilon^{gs}_{k,1}, \\
+  \delta G^{gs,rx}_k &= \sigma^{gs}_{G}\epsilon^{gs}_{k,2}, \\
+  \delta G^{gs,tx}_k &= \sigma^{gs}_{G}\epsilon^{gs}_{k,3}, \\
+  \delta NF^{gs}_k &= \sigma^{gs}_{NF}\epsilon^{gs}_{k,4}, \\
+  \delta f^{gs}_k &= \sigma^{gs}_{f}\epsilon^{gs}_{k,5}, \\
+  EVM^{2}_{gs,tx,k} &= \sigma^{gs}_{EVM}{}^{2}\epsilon^{gs}_{k,6}{}^{2}.
+\end{align}
+
+\subsection{Ground-Station Pointing Loss}
+
+The antenna-pointing separation at the ground station is
+\begin{equation}
+  \theta^{gs}_k
+  =
+  \arccos \left(
+    \sin E_k \sin E^{gs}_k
+    +
+    \cos E_k \cos E^{gs}_k \cos(\alpha_k - \alpha^{gs}_k)
+  \right).
+\end{equation}
+
+For a shared aperture beamwidth $\theta^{3dB}_{gs}$, the pointing loss is
+\begin{equation}
+  L^{gs}_{point,k}
+  =
+  12 \left( \frac{\theta^{gs}_k}{\theta^{3dB}_{gs}} \right)^2.
+\end{equation}
+
+The effective ground-station gains are
+\begin{equation}
+  G^{gs,rx}_k = G^{gs,rx}_{nom} + \delta G^{gs,rx}_k - L^{gs}_{point,k},
+  \qquad
+  G^{gs,tx}_k = G^{gs,tx}_{nom} + \delta G^{gs,tx}_k - L^{gs}_{point,k}.
+\end{equation}
+
+\section{Phased Array, RF Chain, PA, and Oscillator}
+
+\subsection{Active Elements and Array Gain}
+
+Let $d^{elem}_k \in [0,1]$ be the degraded-element fraction after fault application.
+Then
+\begin{equation}
+  N_{elem,k} = N_{elem,0}(1-d^{elem}_k).
+\end{equation}
+
+The ideal coherent array gain is
+\begin{equation}
+  G^{ideal}_{arr,k} = G_{elem} + 10 \log_{10}(N_{elem,k}).
+\end{equation}
+
+Model scan loss by
+\begin{equation}
+  L^{scan}_k = -10 \log_{10}\left( \cos^{q_{scan}} \theta^{steer}_k \right).
+\end{equation}
+
+If the phase shifter least-significant bit is $\Delta \phi_{LSB}$ and the random
+phase-error standard deviation is $\sigma_{\phi,therm,k}$, then
+\begin{align}
+  \sigma^2_{\phi,k}
+  &= \frac{\Delta \phi_{LSB}^2}{12} + \sigma_{\phi,therm,k}^2, \\
+  L^{phase}_k
+  &= -10 \log_{10}\left( e^{-\sigma^2_{\phi,k}} \right)
+   = 4.343 \sigma^2_{\phi,k}.
+\end{align}
+
+Let $L^{arr}_{therm,k}$ denote thermal gain degradation and $L^{arr}_{point,k}$ denote
+residual pointing loss. Then the effective array gain is
+\begin{equation}
+  G_{arr,k}
+  =
+  G^{ideal}_{arr,k}
+  - L^{scan}_k
+  - L^{phase}_k
+  - L^{arr}_{therm,k}
+  - L^{arr}_{point,k}.
+\end{equation}
+
+The same electronically steered aperture is used for satellite transmit and receive,
+with optional calibration offsets:
+\begin{equation}
+  G^{sat,tx}_k = G_{arr,k} - \Delta G^{sat,tx},
+  \qquad
+  G^{sat,rx}_k = G_{arr,k} - \Delta G^{sat,rx}.
+\end{equation}
+
+\subsection{Beamwidth and Beam Quality}
+
+Define an effective aperture width
+\begin{equation}
+  D^{eff}_{arr,k} = d_{elem} \sqrt{N_{elem,k}},
+\end{equation}
+where $d_{elem}$ is inter-element spacing in meters.
+
+Then the approximate half-power beamwidth is
+\begin{equation}
+  \theta^{3dB}_{arr,k}
+  = \kappa_{bw} \frac{\lambda}{D^{eff}_{arr,k}\cos \theta^{steer}_k},
+  \qquad
+  \lambda = \frac{c}{f_c}.
+\end{equation}
+
+A reviewable scalar beam-quality metric is
+\begin{equation}
+  Q^{beam}_k
+  =
+  \exp \left(
+    -\sigma_{\phi,k}^2
+    - \left(\frac{\theta^{arr}_{point,k}}{\theta^{3dB}_{arr,k}}\right)^2
+  \right).
+\end{equation}
+
+\subsection{RF Front-End Loss and Noise Figure}
+
+Let $T^{rf}_{ref}$ be the RF reference temperature.
+The RF noise figure is
+\begin{equation}
+  NF_k = NF_0 + k_{NF}(T^{rf}_k - T^{rf}_{ref}) + \Delta NF^{fault}_k.
+\end{equation}
+
+For the bidirectional model, the satellite receive noise figure is
+\begin{equation}
+  NF^{sat,rx}_k = NF_k + \Delta NF^{sat,rx}.
+\end{equation}
+
+The total transmit-side RF loss is
+\begin{equation}
+  L^{tx}_{rf,k} = L_{filter} + L_{conv} + L_{impl} + \Delta L^{fault}_{rf,k}.
+\end{equation}
+
+\subsection{PA Command, Limits, Compression, and Efficiency}
+
+Let $EIRP^{cmd}$ be the commanded target EIRP for the downlink. The requested PA output is
+\begin{equation}
+  P^{req}_{out,k}
+  = EIRP^{cmd} - G_{arr,k} + L^{tx}_{rf,k}.
+\end{equation}
+
+Let the temperature- and bus-limited PA maximum be
+\begin{equation}
+  P^{lim}_{out,k}
+  =
+  P_{out,\max}
+  - k^{pa}_T \max(0, T^{pa}_k - T^{pa}_{derate})
+  - \Delta P^{bus}_k
+  - \Delta P^{fault}_k.
+\end{equation}
+
+The applied PA output is
+\begin{equation}
+  P_{out,k}
+  =
+  \clip(P^{req}_{out,k}, P_{out,\min}, P^{lim}_{out,k}).
+\end{equation}
+
+With saturation reference $P_{sat}$, the input/output backoff is
+\begin{equation}
+  IBO_k = P_{sat} - P_{out,k}.
+\end{equation}
+
+The compression loss is modeled as
+\begin{equation}
+  L^{comp}_k
+  =
+  k_{comp}\max(0, IBO_{nom} - IBO_k)^2.
+\end{equation}
+
+The PA efficiency is
+\begin{equation}
+  \eta^{pa}_k
+  =
+  \clip\left(
+    \eta^{pa}_0
+    - k^{pa}_{\eta}(T^{pa}_k - T^{pa}_{ref})
+    - \Delta \eta^{fault}_k,
+    \eta^{pa}_{min},
+    \eta^{pa}_{max}
+  \right).
+\end{equation}
+
+Converting dBW to watts,
+\begin{equation}
+  P^{rf}_{W,k} = 10^{P_{out,k}/10},
+\end{equation}
+and the PA DC draw is
+\begin{equation}
+  P^{dc}_{pa,k} = \frac{P^{rf}_{W,k}}{\eta^{pa}_k}.
+\end{equation}
+
+\subsection{Oscillator Drift, Tracking Lag, and Residual Frequency Error}
+
+Let $T^{osc}_{ref}$ be the oscillator reference temperature.
+The oscillator absolute offset is
+\begin{equation}
+  \Delta f^{osc}_k
+  =
+  \Delta f^{osc}_0
+  + \alpha_f (T^{osc}_k - T^{osc}_{ref})
+  + \dot{f}_{drift}(t_k - t_0)
+  + \Delta f^{fault}_k.
+\end{equation}
+
+Let the compute-induced tracking lag in frames be
+\begin{equation}
+  \ell_k = \left\lceil \frac{\tau^{sched}_k}{\Delta t} \right\rceil.
+\end{equation}
+
+The Doppler correction command uses a delayed estimate:
+\begin{equation}
+  \widehat{f}^{dop,dl}_k = f^{dop,dl}_{k-\ell_k},
+  \qquad
+  \widehat{f}^{dop,ul}_k = f^{dop,ul}_{k-\ell_k}.
+\end{equation}
+
+The residual carrier-frequency errors at the modem are
+\begin{align}
+  \Delta f^{res,dl}_k
+  &=
+  \Delta f^{osc}_k
+  + f^{dop,dl}_k
+  - \widehat{f}^{dop,dl}_k, \\
+  \Delta f^{res,ul}_k
+  &=
+  \Delta f^{osc}_k
+  + \Delta f^{gs,tx}
+  + f^{dop,ul}_k
+  - \widehat{f}^{dop,ul}_k.
+\end{align}
+
+The timing-jitter standard deviation is
+\begin{equation}
+  \sigma_{t,k}
+  =
+  \sigma_{t,0}
+  + k_t (T^{osc}_k - T^{osc}_{ref})
+  + \Delta \sigma^{fault}_{t,k}.
+\end{equation}
+
+\section{Thermal, Power, and Compute Dynamics}
+
+\subsection{Thermal State Update}
+
+For subsystem $i \in \{arr, pa, rf, osc\}$, let the thermal model be first-order:
+\begin{equation}
+  T^i_{k+1}
+  =
+  T^i_k
+  +
+  \frac{\Delta t}{C_i}
+  \left(
+    Q^i_{gen,k}
+    + Q^i_{sun,k}
+    - \frac{T^i_k - T_{sink}}{R_i}
+  \right).
+\end{equation}
+
+The generated heat terms are
+\begin{align}
+  Q^{pa}_{gen,k}
+  &= P^{dc}_{pa,k} - P^{rf}_{W,k}, \\
+  Q^{arr}_{gen,k}
+  &= P^{beam}_{0}V_k + k^{arr}_{scan}(\theta^{steer}_k)^2, \\
+  Q^{rf}_{gen,k}
+  &= P^{rf}_{0} + k^{rf}_{cpu}u^{cpu}_k, \\
+  Q^{osc}_{gen,k}
+  &= P^{osc}_{0}.
+\end{align}
+
+The sunlight heat term is
+\begin{equation}
+  Q^i_{sun,k} = \alpha_i A_i \Phi_{sun} S_k,
+\end{equation}
+where $S_k \in [0,1]$ is the sun-exposure factor.
+
+\subsection{Solar, Battery, and Bus Budget}
+
+Solar generation is
+\begin{equation}
+  P^{sol}_k = \eta_{sol} A_{sol} \Phi_{sun} S_k.
+\end{equation}
+
+Total electrical load is
+\begin{equation}
+  P^{load}_k
+  =
+  P^{dc}_{pa,k}
+  + P^{comp}_k
+  + P^{therm}_k
+  + P^{house}_0.
+\end{equation}
+
+Battery energy evolves as
+\begin{equation}
+  E^{batt}_{k+1}
+  =
+  \clip\left(
+    E^{batt}_k + \Delta t (P^{sol}_k - P^{load}_k),
+    0,
+    E_{batt,\max}
+  \right).
+\end{equation}
+
+Battery state of charge is
+\begin{equation}
+  SOC_k = \frac{E^{batt}_k}{E_{batt,\max}}.
+\end{equation}
+
+The available bus power is
+\begin{equation}
+  P^{avail}_k
+  =
+  P^{sol}_k
+  + P_{batt,\max}\mathbf{1}\{SOC_k > SOC_{min}\}.
+\end{equation}
+
+If load exceeds availability, the shedding factor is
+\begin{equation}
+  u^{shed}_k
+  =
+  \clip\left(
+    \frac{P^{load}_k - P^{avail}_k}{P^{load}_k},
+    0,
+    1
+  \right).
+\end{equation}
+
+The power-limit penalty applied to the PA command is
+\begin{equation}
+  \Delta P^{bus}_k = k^{bus}_P u^{shed}_k.
+\end{equation}
+
+\subsection{Compute Utilization and Scheduling}
+
+Let the offered packet rates be
+\begin{align}
+  \lambda^{dl}_{off}
+  &=
+  \frac{L^{dl}_{off}}{8L^{dl}_{pkt}}, \\
+  \lambda^{ul}_{off}
+  &=
+  \frac{L^{ul}_{off}}{8L^{ul}_{pkt}}.
+\end{align}
+
+The compute demand per second is
+\begin{equation}
+  D^{comp}_k
+  =
+  c_{idle}
+  + c_{beam}N_{elem,k}V_k
+  + c_{dop}V_k
+  + c^{dl}_{modem}\lambda^{dl}_{off}L^{dl}_{pkt}
+  + c^{ul}_{modem}\lambda^{ul}_{off}L^{ul}_{pkt}
+  + c_{tm}|\{j : F_{j,k}=1\}|.
+\end{equation}
+
+The compute backlog update is
+\begin{equation}
+  q^{comp}_{k+1}
+  =
+  \max\left(0, q^{comp}_k + \Delta t(D^{comp}_k - C_{comp})\right).
+\end{equation}
+
+Utilization is
+\begin{equation}
+  u^{cpu}_k = \clip\left( \frac{D^{comp}_k}{C_{comp}}, 0, 1 \right).
+\end{equation}
+
+The schedule delay is
+\begin{equation}
+  \tau^{sched}_k = \frac{q^{comp}_k}{C_{comp}}.
+\end{equation}
+
+Compute electrical load is
+\begin{equation}
+  P^{comp}_k = P^{comp}_{idle} + (P^{comp}_{max} - P^{comp}_{idle})u^{cpu}_k.
+\end{equation}
+
+\section{Derived RF Output and Link Budget}
+
+Unless marked with superscript $ul$, the RF and link equations in this section refer
+to the downlink from satellite to ground station.
+
+\subsection{Polarization and EIRP}
+
+Let the downlink polarization mismatch loss be
+\begin{equation}
+  L^{pol,dl}_k
+  =
+  -10 \log_{10}\left(
+    \left| \hat{e}^{sat,tx}_k{}^\dagger \hat{e}^{gs,rx} \right|^2
+  \right).
+\end{equation}
+
+Then the downlink transmit EIRP is
+\begin{equation}
+  EIRP^{dl}_k
+  =
+  P_{out,k}
+  + G^{sat,tx}_k
+  - L^{tx}_{rf,k}
+  - L^{comp}_k
+  - L^{pol,dl}_k.
+\end{equation}
+
+\subsection{Downlink Path Loss, Noise, and Raw SNR}
+
+The downlink free-space path loss is
+\begin{equation}
+  \lambda^{dl} = \frac{c}{f_c^{dl}},
+  \qquad
+  L^{fs,dl}_k = 20 \log_{10}\left( \frac{4\pi R_k}{\lambda^{dl}} \right).
+\end{equation}
+
+Model atmospheric attenuation with an elevation-dependent secant law:
+\begin{equation}
+  L^{atm,dl}_k
+  =
+  \frac{L^{zen,dl}}{\max(\sin E_k, \sin E_{floor})}.
+\end{equation}
+
+The downlink received carrier power is
+\begin{equation}
+  P^{rx,dl}_k
+  =
+  EIRP^{dl}_k
+  + G^{gs,rx}_k
+  - L^{fs,dl}_k
+  - L^{atm,dl}_k
+  - L^{misc,dl}.
+\end{equation}
+
+Ground receive equivalent noise temperature is
+\begin{equation}
+  NF^{gs,rx}_k = NF^{gs}_{nom} + \delta NF^{gs}_k,
+  \qquad
+  T^{eq,dl}_k = 290\left(10^{NF^{gs,rx}_k/10} - 1\right).
+\end{equation}
+
+Ground downlink system temperature is
+\begin{equation}
+  T^{sys,dl}_k = T^{ant,gs}_k + T^{eq,dl}_k.
+\end{equation}
+
+Downlink noise power over bandwidth $B^{dl}$ is
+\begin{equation}
+  N^{dl}_k = 10 \log_{10}\left( k_B T^{sys,dl}_k B^{dl} \right).
+\end{equation}
+
+The raw downlink SNR is
+\begin{equation}
+  \gamma^{raw,dl}_{k,dB} = P^{rx,dl}_k - N^{dl}_k,
+  \qquad
+  \gamma^{raw,dl}_{k,lin} = 10^{\gamma^{raw,dl}_{k,dB}/10}.
+\end{equation}
+
+\subsection{Downlink EVM and Effective SNR}
+
+Thermal-noise EVM contribution:
+\begin{equation}
+  EVM^{2,dl}_{th,k} = \frac{1}{\gamma^{raw,dl}_{k,lin}}.
+\end{equation}
+
+Residual-frequency EVM contribution:
+\begin{equation}
+  EVM^{2,dl}_{cfo,k}
+  =
+  k^{dl}_{cfo}
+  \left(\frac{\Delta f^{res,dl}_k}{R^{dl}_s}\right)^2,
+\end{equation}
+where $R^{dl}_s$ is the downlink symbol rate.
+
+Timing-jitter contribution:
+\begin{equation}
+  EVM^{2,dl}_{jit,k} = \left( 2\pi B^{dl} \sigma_{t,k} \right)^2.
+\end{equation}
+
+PA-compression contribution:
+\begin{equation}
+  EVM^{2,dl}_{pa,k}
+  =
+  k^{dl}_{pa,evm}\max(0, P_{out,k} - P_{1dB})^2.
+\end{equation}
+
+Phase-error contribution:
+\begin{equation}
+  EVM^{2,dl}_{phase,k}
+  =
+  2\left(1 - e^{-\sigma_{\phi,k}^2}\right).
+\end{equation}
+
+The total downlink EVM is
+\begin{equation}
+  EVM^{2,dl}_k
+  =
+  EVM^{2,dl}_{th,k}
+  + EVM^{2,dl}_{cfo,k}
+  + EVM^{2,dl}_{jit,k}
+  + EVM^{2,dl}_{pa,k}
+  + EVM^{2,dl}_{phase,k}.
+\end{equation}
+
+Define the effective downlink SNR used by the modem as
+\begin{equation}
+  \gamma^{eff,dl}_{k,lin} = \frac{1}{EVM^{2,dl}_k},
+  \qquad
+  \gamma^{eff,dl}_{k,dB} = 10\log_{10}\gamma^{eff,dl}_{k,lin}.
+\end{equation}
+
+\subsection{Simple Uplink: Ground Station to Satellite}
+
+For completeness, the uplink model uses a simple but realistic ground transmitter:
+shared mechanical pointing, nominal terminal settings, and bounded stochastic variation
+in TX power, gain, reference offset, and residual transmitter impairment. It does not
+introduce a satellite-style ground thermal or scheduler stack.
+
+The applied ground-station transmit power is
+\begin{equation}
+  P^{gs}_{tx,k}
+  =
+  \clip(P^{gs}_{tx,nom} + \delta P^{gs}_k, P^{gs}_{tx,\min}, P^{gs}_{tx,\max}).
+\end{equation}
+
+The uplink polarization mismatch loss is
+\begin{equation}
+  L^{pol,ul}_k
+  =
+  -10 \log_{10}\left(
+    \left| \hat{e}^{gs,tx}{}^\dagger \hat{e}^{sat,rx}_k \right|^2
+  \right).
+\end{equation}
+
+The uplink EIRP is
+\begin{equation}
+  EIRP^{ul}_k
+  =
+  P^{gs}_{tx,k}
+  + G^{gs,tx}_k
+  - L^{gs}_{tx,rf}
+  - L^{pol,ul}_k.
+\end{equation}
+
+The uplink free-space and atmospheric losses are
+\begin{equation}
+  \lambda^{ul} = \frac{c}{f_c^{ul}},
+  \qquad
+  L^{fs,ul}_k = 20 \log_{10}\left( \frac{4\pi R_k}{\lambda^{ul}} \right),
+\end{equation}
+\begin{equation}
+  L^{atm,ul}_k
+  =
+  \frac{L^{zen,ul}}{\max(\sin E_k, \sin E_{floor})}.
+\end{equation}
+
+The satellite uplink receive power is
+\begin{equation}
+  P^{rx,ul}_k
+  =
+  EIRP^{ul}_k
+  + G^{sat,rx}_k
+  - L^{fs,ul}_k
+  - L^{atm,ul}_k
+  - L^{misc,ul}.
+\end{equation}
+
+Satellite uplink receive noise is
+\begin{equation}
+  T^{eq,ul}_k = 290\left(10^{NF^{sat,rx}_k/10} - 1\right),
+  \qquad
+  T^{sys,ul}_k = T^{ant,sat}_k + T^{eq,ul}_k,
+\end{equation}
+\begin{equation}
+  N^{ul}_k = 10 \log_{10}\left(k_B T^{sys,ul}_k B^{ul}\right).
+\end{equation}
+
+The raw uplink SNR is
+\begin{equation}
+  \gamma^{raw,ul}_{k,dB} = P^{rx,ul}_k - N^{ul}_k,
+  \qquad
+  \gamma^{raw,ul}_{k,lin} = 10^{\gamma^{raw,ul}_{k,dB}/10}.
+\end{equation}
+
+The uplink EVM budget is
+\begin{align}
+  EVM^{2,ul}_{th,k}
+  &= \frac{1}{\gamma^{raw,ul}_{k,lin}}, \\
+  EVM^{2,ul}_{cfo,k}
+  &= k^{ul}_{cfo}\left(\frac{\Delta f^{res,ul}_k + \delta f^{gs}_k}{R^{ul}_s}\right)^2, \\
+  EVM^{2,ul}_{jit,k}
+  &= \left(2\pi B^{ul}\sigma_{t,k}\right)^2, \\
+  EVM^{2,ul}_{phase,k}
+  &= 2\left(1 - e^{-\sigma_{\phi,k}^2}\right).
+\end{align}
+
+With a simple stochastic ground-transmitter impairment term, the total uplink EVM is
+\begin{equation}
+  EVM^{2,ul}_k
+  =
+  EVM^{2,ul}_{th,k}
+  + EVM^{2,ul}_{cfo,k}
+  + EVM^{2,ul}_{jit,k}
+  + EVM^{2,ul}_{phase,k}
+  + EVM^{2}_{gs,tx,k},
+\end{equation}
+and the uplink effective SNR is
+\begin{equation}
+  \gamma^{eff,ul}_{k,lin} = \frac{1}{EVM^{2,ul}_k},
+  \qquad
+  \gamma^{eff,ul}_{k,dB} = 10\log_{10}\gamma^{eff,ul}_{k,lin}.
+\end{equation}
+
+\section{Adaptive Modulation, BER, and PER}
+
+The downlink MCS table contains entries indexed by $m$, each with spectral efficiency
+$\eta^{dl}_m$ and required SNR $\gamma^{dl}_{req,m}$ in dB.
+The selected downlink MCS is
+\begin{equation}
+  m^{dl}_k
+  =
+  \max\{m : \gamma^{eff,dl}_{k,dB} \ge \gamma^{dl}_{req,m} + \Gamma^{dl}_{margin}\}.
+\end{equation}
+
+The downlink coded BER model is an explicit logistic curve around the selected MCS threshold:
+\begin{equation}
+  BER^{dl}_k
+  =
+  BER^{dl}_{min,m^{dl}_k}
+  +
+  \frac{BER^{dl}_{max,m^{dl}_k} - BER^{dl}_{min,m^{dl}_k}}
+       {1 + \exp\left(a^{dl}_{m^{dl}_k}\left(\gamma^{eff,dl}_{k,dB} - \gamma^{dl}_{req,m^{dl}_k}\right)\right)}.
+\end{equation}
+
+For downlink packet length in bits
+\begin{equation}
+  L^{dl}_{bit} = 8L^{dl}_{pkt},
+\end{equation}
+the packet-error rate is
+\begin{equation}
+  PER^{dl}_k = 1 - (1 - BER^{dl}_k)^{L^{dl}_{bit}}.
+\end{equation}
+
+The scheduled downlink PHY payload service rate is
+\begin{equation}
+  C^{sched,dl}_k = \eta^{dl}_{m^{dl}_k} B^{dl} (1 - OH^{dl}_{mac}).
+\end{equation}
+
+The downlink service rate in packets per second is
+\begin{equation}
+  \mu^{dl}_k = \frac{C^{sched,dl}_k}{L^{dl}_{bit}}.
+\end{equation}
+
+The uplink modulation and coding selection is computed independently:
+\begin{equation}
+  m^{ul}_k
+  =
+  \max\{m : \gamma^{eff,ul}_{k,dB} \ge \gamma^{ul}_{req,m} + \Gamma^{ul}_{margin}\}.
+\end{equation}
+
+\begin{equation}
+  BER^{ul}_k
+  =
+  BER^{ul}_{min,m^{ul}_k}
+  +
+  \frac{BER^{ul}_{max,m^{ul}_k} - BER^{ul}_{min,m^{ul}_k}}
+       {1 + \exp\left(a^{ul}_{m^{ul}_k}\left(\gamma^{eff,ul}_{k,dB} - \gamma^{ul}_{req,m^{ul}_k}\right)\right)}.
+\end{equation}
+
+\begin{equation}
+  L^{ul}_{bit} = 8L^{ul}_{pkt},
+  \qquad
+  PER^{ul}_k = 1 - (1 - BER^{ul}_k)^{L^{ul}_{bit}}.
+\end{equation}
+
+\begin{equation}
+  C^{sched,ul}_k = \eta^{ul}_{m^{ul}_k} B^{ul} (1 - OH^{ul}_{mac}),
+  \qquad
+  \mu^{ul}_k = \frac{C^{sched,ul}_k}{L^{ul}_{bit}}.
+\end{equation}
+
+\section{Packet Trace, Latency, Jitter, Retransmissions, and Goodput}
+
+The packet-trace model runs independently for each direction
+$d \in \{dl, ul\}$. Below, $\lambda^{d}_{off}$, $\mu^d_k$, $q^d_k$, $PER^d_k$,
+$L^{d}_{pkt}$, $\tau^{d}_{retx}$, and $N^{d}_{sample,max}$ are the direction-specific
+quantities. The shared compute/scheduler delay $\tau^{sched}_k$ couples the two
+directions through on-board resource contention.
+
+\subsection{Network Backlog}
+
+The traffic backlog update is
+\begin{equation}
+  q^{d}_{k+1}
+  =
+  \max\left(0, q^{d}_k + \Delta t(\lambda^{d}_{off} - \mu^{d}_k)\right).
+\end{equation}
+
+The queueing delay is
+\begin{equation}
+  \tau^{queue,d}_k
+  =
+  \begin{cases}
+    q^{d}_k / \mu^{d}_k, & \mu^{d}_k > 0, \\
+    +\infty, & \mu^{d}_k = 0.
+  \end{cases}
+\end{equation}
+
+The propagation delay is
+\begin{equation}
+  \tau^{prop}_k = \frac{R_k}{c}.
+\end{equation}
+
+\subsection{Bounded Deterministic Packet Sampling}
+
+The number of offered packets in one second is
+\begin{equation}
+  N^{offer,d}_k = \lambda^{d}_{off}\Delta t.
+\end{equation}
+
+The bounded sample count is
+\begin{equation}
+  N^{samp,d}_k = \min\left(N^{d}_{sample,max}, \lceil N^{offer,d}_k \rceil \right).
+\end{equation}
+
+Each sample packet represents
+\begin{equation}
+  w^{d}_k = \frac{N^{offer,d}_k}{N^{samp,d}_k}
+\end{equation}
+packets.
+
+For deterministic sampling, define
+\begin{align}
+  x_{k,m,a,d,0}
+  &= \left(
+    s
+    + 73856093k
+    + 19349663m
+    + 83492791a
+    + \zeta_d
+  \right)\bmod 2^{32}, \\
+  x_{k,m,a,d,1}
+  &= \left(1664525x_{k,m,a,d,0} + 1013904223\right)\bmod 2^{32}, \\
+  u_{k,m,a,d}
+  &= \frac{x_{k,m,a,d,1}}{2^{32}},
+\end{align}
+where $m$ is the sample-packet index and $a$ is the attempt index.
+
+\subsection{Per-Packet Transmission Outcome}
+
+The total number of allowed attempts is
+\begin{equation}
+  A^{d}_{max} = 1 + N^{d}_{retx,max}.
+\end{equation}
+
+For packet sample $(k,m)$, attempt $a$ fails if
+\begin{equation}
+  I^{fail,d}_{k,m,a} = \mathbf{1}\{u_{k,m,a,d} < PER^{d}_k\}.
+\end{equation}
+
+The first successful attempt index is
+\begin{equation}
+  a^{succ,d}_{k,m}
+  =
+  \min\{a \in \{1,\dots,A^{d}_{max}\} : I^{fail,d}_{k,m,a}=0\}.
+\end{equation}
+
+If no such attempt exists, the packet is dropped:
+\begin{equation}
+  D^{d}_{k,m} = \prod_{a=1}^{A^{d}_{max}} I^{fail,d}_{k,m,a}.
+\end{equation}
+
+The actual attempt count is
+\begin{equation}
+  n^{tx,d}_{k,m}
+  =
+  \begin{cases}
+    a^{succ,d}_{k,m}, & D^{d}_{k,m}=0, \\
+    A^{d}_{max}, & D^{d}_{k,m}=1.
+  \end{cases}
+\end{equation}
+
+Successful packet latency is
+\begin{equation}
+  \tau^{d}_{k,m}
+  =
+  \tau^{prop}_k
+  + \tau^{sched}_k
+  + \tau^{queue,d}_k
+  + \tau_{proc}
+  + (n^{tx,d}_{k,m}-1)\tau^{d}_{retx}.
+\end{equation}
+
+\subsection{Aggregated Traffic Metrics}
+
+Weighted packet-loss fraction:
+\begin{equation}
+  p^{loss,d}_k
+  =
+  \frac{\sum_{m=1}^{N^{samp,d}_k} w^{d}_k D^{d}_{k,m}}
+       {\sum_{m=1}^{N^{samp,d}_k} w^{d}_k}.
+\end{equation}
+
+Weighted retransmission count:
+\begin{equation}
+  N^{retx,d}_k
+  =
+  \sum_{m=1}^{N^{samp,d}_k} w^{d}_k (n^{tx,d}_{k,m} - 1).
+\end{equation}
+
+Weighted goodput in bits/s:
+\begin{equation}
+  G^{d}_k
+  =
+  \frac{L^{d}_{bit}}{\Delta t}
+  \sum_{m=1}^{N^{samp,d}_k} w^{d}_k (1-D^{d}_{k,m}).
+\end{equation}
+
+Weighted mean latency over successful packets:
+\begin{equation}
+  \bar{\tau}^{d}_k
+  =
+  \frac{
+    \sum_{m=1}^{N^{samp,d}_k} w^{d}_k (1-D^{d}_{k,m})\tau^{d}_{k,m}
+  }{
+    \sum_{m=1}^{N^{samp,d}_k} w^{d}_k (1-D^{d}_{k,m})
+  }.
+\end{equation}
+
+Weighted latency jitter:
+\begin{equation}
+  J^{d}_k
+  =
+  \sqrt{
+    \frac{
+      \sum_{m=1}^{N^{samp,d}_k} w^{d}_k (1-D^{d}_{k,m})(\tau^{d}_{k,m} - \bar{\tau}^{d}_k)^2
+    }{
+      \sum_{m=1}^{N^{samp,d}_k} w^{d}_k (1-D^{d}_{k,m})
+    }
+  }.
+\end{equation}
+
+\section{Explainability Tags}
+
+Each frame should carry reason tags derived from normalized impairment scores:
+\begin{align}
+  S^{lowSNR,dl}_k &= \max(0, \gamma^{dl}_{req,m^{dl}_k} - \gamma^{eff,dl}_{k,dB}), \\
+  S^{lowSNR,ul}_k &= \max(0, \gamma^{ul}_{req,m^{ul}_k} - \gamma^{eff,ul}_{k,dB}), \\
+  S^{freq,dl}_k &= \frac{|\Delta f^{res,dl}_k|}{\Delta f^{dl}_{tol}}, \\
+  S^{freq,ul}_k &= \frac{|\Delta f^{res,ul}_k|}{\Delta f^{ul}_{tol}}, \\
+  S^{pa}_k &= \frac{L^{comp}_k}{L^{comp}_{tag}}, \\
+  S^{array}_k &= \frac{L^{scan}_k + L^{phase}_k + L^{arr}_{therm,k}}{L^{array}_{tag}}, \\
+  S^{thermal}_k &= \max_i \frac{T^i_k - T^i_{th}}{\Delta T^i_{tag}}, \\
+  S^{compute}_k &= \frac{\tau^{sched}_k}{\tau^{deadline}}, \\
+  S^{power}_k &= u^{shed}_k.
+\end{align}
+
+Tag $r$ is active when $S^r_k \ge 1$, and the dominant explanation is
+\begin{equation}
+  r^{dom}_k = \argmax_r S^r_k.
+\end{equation}
+
+\section{Per-Frame Outputs}
+
+For review, each frame should contain at least the following dependent outputs:
+\begin{enumerate}
+  \item Geometry: $\alpha_k$, $E_k$, $R_k$, $\dot{R}_k$, $f^{dop,dl}_k$, $f^{dop,ul}_k$, $V_k$.
+  \item Pass context: $(k_{in}, k_{apex}, k_{out})$ and in-pass / out-of-pass flags.
+  \item Hardware: $\theta^{steer}_k$, $\alpha^{gs}_k$, $E^{gs}_k$, $\theta^{gs}_k$,
+        $N_{elem,k}$, $G_{arr,k}$, $G^{sat,tx}_k$, $G^{sat,rx}_k$, $\theta^{3dB}_{arr,k}$,
+        $Q^{beam}_k$, $NF_k$, $NF^{sat,rx}_k$, $P_{out,k}$, $IBO_k$, $L^{comp}_k$,
+        $\Delta f^{osc}_k$, $\Delta f^{res,dl}_k$, $\Delta f^{res,ul}_k$, $\sigma_{t,k}$,
+        temperatures, battery state, compute backlog.
+  \item Link: $(EIRP^{dl}_k, P^{rx,dl}_k, N^{dl}_k, \gamma^{raw,dl}_k, EVM^{dl}_k, \gamma^{eff,dl}_k, m^{dl}_k, BER^{dl}_k, PER^{dl}_k)$ and $(EIRP^{ul}_k, P^{rx,ul}_k, N^{ul}_k, \gamma^{raw,ul}_k, EVM^{ul}_k, \gamma^{eff,ul}_k, m^{ul}_k, BER^{ul}_k, PER^{ul}_k)$.
+  \item Traffic: sampled packet events plus $(p^{loss,dl}_k, N^{retx,dl}_k, \bar{\tau}^{dl}_k, J^{dl}_k, G^{dl}_k)$ and $(p^{loss,ul}_k, N^{retx,ul}_k, \bar{\tau}^{ul}_k, J^{ul}_k, G^{ul}_k)$.
+  \item Explainability: active reason tags and dominant cause.
+\end{enumerate}
+
+\section{Implementation Organization}
+
+To keep formulas reviewable, the implementation should mirror this document with pure
+modules in one simulation layer:
+\begin{enumerate}
+  \item \texttt{simulation/geometry}: coordinate transforms, range, Doppler, visibility, pass window.
+  \item \texttt{simulation/hardware}: steering, phased array, RF chain, PA, oscillator,
+        thermal, power, and compute.
+  \item \texttt{simulation/link}: direction-specific EIRP, path loss, noise, EVM,
+        effective SNR, MCS, BER, and PER for both downlink and uplink.
+  \item \texttt{simulation/traffic}: deterministic packet sampling, retransmissions,
+        latency, jitter, and goodput for both directions.
+  \item \texttt{simulation/build-frame}: ordered orchestration from propagated state to
+        final frame outputs.
+\end{enumerate}
+
+No visualization code should contain simulation math. Every future UI surface should read
+already-computed frame fields only.
+
+\end{document}
