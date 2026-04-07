@@ -95,6 +95,8 @@ const DEFAULT_CAMERA_DISTANCE = Math.hypot(0, 1.35, 6.4);
 const DEFAULT_ROTATE_SPEED = 0.55;
 const ZOOM_ANIMATION_MS = 650;
 const GROUND_STATION_ELEVATION_ARC_RADIUS = 0.15;
+const GROUND_STATION_MARKER_RADIUS = 0.055;
+const GROUND_STATION_PULSE_RADIUS = 0.09;
 const DEFAULT_ROTATION_CENTER = new Vector3(0, 0, 0);
 
 export function GlobeScene({
@@ -162,7 +164,7 @@ export function GlobeScene({
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
     controls.enablePan = true;
-    controls.minDistance = 3.1;
+    controls.minDistance = 2;
     controls.maxDistance = 9;
     controls.rotateSpeed = DEFAULT_ROTATE_SPEED;
     controls.target.copy(DEFAULT_ROTATION_CENTER);
@@ -199,8 +201,10 @@ export function GlobeScene({
         map: makeCloudTexture(),
         transparent: true,
         opacity: 0.18,
+        depthWrite: false,
       }),
     );
+    cloudLayer.renderOrder = 1;
     earthGroup.add(cloudLayer);
 
     const atmosphere = new Mesh(
@@ -209,17 +213,17 @@ export function GlobeScene({
         color: "#3b82f6",
         transparent: true,
         opacity: 0.14,
+        depthWrite: false,
         side: BackSide,
       }),
     );
+    atmosphere.renderOrder = 2;
     earthGroup.add(atmosphere);
 
-    const stationLocalPosition = getGroundStationLocalVector(
-      groundStation,
-      EARTH_RADIUS * 1.018,
-    );
+    const stationRadius = getGroundStationAnchorRadius(groundStation, physicalConstants);
+    const stationLocalPosition = getGroundStationLocalVector(groundStation, stationRadius);
     const stationMarker = new Mesh(
-      new SphereGeometry(0.055, 32, 32),
+      new SphereGeometry(GROUND_STATION_MARKER_RADIUS, 32, 32),
       new MeshBasicMaterial({ color: "#38bdf8" }),
     );
     stationMarker.position.set(
@@ -231,14 +235,16 @@ export function GlobeScene({
     earthGroup.add(stationMarker);
 
     const stationPulse = new Mesh(
-      new SphereGeometry(0.09, 32, 32),
+      new SphereGeometry(GROUND_STATION_PULSE_RADIUS, 32, 32),
       new MeshBasicMaterial({
         color: "#60a5fa",
         transparent: true,
         opacity: 0.26,
+        depthWrite: false,
       }),
     );
     stationPulse.position.copy(stationMarker.position);
+    stationPulse.renderOrder = 4;
     earthGroup.add(stationPulse);
 
     const antennaDirection = getGroundStationAntennaDirectionLocalVector(
@@ -271,8 +277,10 @@ export function GlobeScene({
         color: "#4ade80",
         transparent: true,
         opacity: 1,
+        depthWrite: false,
       }),
     );
+    antennaRay.renderOrder = 3;
     earthGroup.add(antennaRay);
 
     const elevationArc = new Line(
@@ -281,14 +289,16 @@ export function GlobeScene({
         color: "#22d3ee",
         transparent: true,
         opacity: 0.92,
+        depthWrite: false,
       }),
     );
+    elevationArc.renderOrder = 3;
     elevationArc.geometry.setAttribute(
       "position",
       new Float32BufferAttribute(
         getGroundStationElevationArcLocalPositions(
           groundStation,
-          EARTH_RADIUS * 1.018,
+          stationRadius,
           GROUND_STATION_ELEVATION_ARC_RADIUS,
           24,
           {
@@ -307,8 +317,10 @@ export function GlobeScene({
         color: "#f59e0b",
         transparent: true,
         opacity: 0.5,
+        depthWrite: false,
       }),
     );
+    satellitePath.renderOrder = 1;
     satellitePath.geometry.setAttribute(
       "position",
       new Float32BufferAttribute(
@@ -330,8 +342,10 @@ export function GlobeScene({
         color: "#fde68a",
         transparent: true,
         opacity: 0.2,
+        depthWrite: false,
       }),
     );
+    satelliteGlow.renderOrder = 2;
     inertialGroup.add(satelliteGlow);
 
     scene.add(createStarField());
@@ -697,6 +711,7 @@ function applyFrameToScene(
   handles.satelliteGlow.position.copy(handles.satelliteMarker.position);
   handles.satelliteGlow.scale.setScalar(1 + getPulseScale(clock, frame.currentUnixMs) * 0.16);
   const stationPosition = handles.stationMarker.position;
+  const stationRadius = getGroundStationAnchorRadius(groundStation, physicalConstants);
   const antennaDirection = getGroundStationAntennaDirectionLocalVector(
     groundStation,
     {
@@ -735,7 +750,7 @@ function applyFrameToScene(
     new Float32BufferAttribute(
       getGroundStationElevationArcLocalPositions(
         groundStation,
-        EARTH_RADIUS * 1.018,
+        stationRadius,
         GROUND_STATION_ELEVATION_ARC_RADIUS,
         24,
         {
@@ -776,6 +791,15 @@ function createStarField() {
       transparent: true,
       opacity: 0.68,
     }),
+  );
+}
+
+function getGroundStationAnchorRadius(
+  groundStation: GroundStation,
+  physicalConstants: PhysicalConstants,
+) {
+  return EARTH_RADIUS * (
+    1 + groundStation.altitudeM / physicalConstants.earthModel.meanRadiusM
   );
 }
 
