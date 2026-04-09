@@ -1,10 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
-import { DEFAULT_SIMULATION_STATE, type GroundStationConfig } from "../state";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from "react";
+import { DEFAULT_SIMULATION_STATE, type GroundStationConfig, type TleElements } from "../state";
 import { GlobeScene } from "./components/GlobeScene";
 import { GroundStationCard } from "./components/GroundStationCard";
 import { GroundStationHover } from "./components/GroundStationHover";
+import { SatelliteCard } from "./components/SatelliteCard";
 import { SimulationTimeline } from "./components/SimulationTimeline";
-import type { GroundStation } from "./types";
+import type { GroundStation, Satellite } from "./types";
 
 declare global {
   interface Window {
@@ -26,8 +34,13 @@ export function App() {
     () => toGroundStation(simulationState.config.groundStation),
     [simulationState.config.groundStation],
   );
+  const satellite = useMemo(
+    () => toSatellite(simulationState.config.tle),
+    [simulationState.config.tle],
+  );
 
   const [selectedStation, setSelectedStation] = useState<GroundStation | null>(null);
+  const [selectedSatellite, setSelectedSatellite] = useState<Satellite | null>(null);
   const [hover, setHover] = useState<{
     station: GroundStation;
     x: number;
@@ -52,6 +65,16 @@ export function App() {
 
   const visualFrame = simulationState.frames[visualFrameIndex];
   pendingFrameIndexRef.current = pendingFrameIndex;
+
+  const handleGroundStationSelect = useCallback((station: GroundStation) => {
+    setSelectedSatellite(null);
+    setSelectedStation(station);
+  }, []);
+
+  const handleSatelliteSelect = useCallback((nextSatellite: Satellite) => {
+    setSelectedStation(null);
+    setSelectedSatellite(nextSatellite);
+  }, []);
 
   const beginScrub = () => {
     isScrubbingRef.current = true;
@@ -116,12 +139,15 @@ export function App() {
       <GlobeScene
         clock={simulationState.clock}
         groundStation={groundStation}
+        satellite={satellite}
         frame={visualFrame}
         frames={simulationState.frames}
         physicalConstants={simulationState.physicalConstants}
         selectedStation={selectedStation}
+        selectedSatellite={selectedSatellite}
         onGroundStationHover={setHover}
-        onGroundStationSelect={setSelectedStation}
+        onGroundStationSelect={handleGroundStationSelect}
+        onSatelliteSelect={handleSatelliteSelect}
       />
 
       {hover ? <GroundStationHover hover={hover} /> : null}
@@ -132,6 +158,15 @@ export function App() {
           currentUnixMs={visualFrame.currentUnixMs}
           derivedState={visualFrame.groundStation}
           onClose={() => setSelectedStation(null)}
+        />
+      ) : null}
+
+      {selectedSatellite ? (
+        <SatelliteCard
+          satellite={selectedSatellite}
+          currentUnixMs={visualFrame.currentUnixMs}
+          frameState={visualFrame.satellite}
+          onClose={() => setSelectedSatellite(null)}
         />
       ) : null}
 
@@ -151,6 +186,14 @@ function toGroundStation(config: GroundStationConfig): GroundStation {
   return {
     id: "ground-station",
     ...config,
+  };
+}
+
+function toSatellite(tle: TleElements): Satellite {
+  return {
+    id: "satellite",
+    name: tle.name,
+    tle,
   };
 }
 
