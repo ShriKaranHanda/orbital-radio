@@ -92,13 +92,18 @@ button {
 }
 
 .timeline-summary {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: start;
   gap: 16px;
 }
 
-.timeline-summary div {
+.timeline-summary-block {
   min-width: 0;
+}
+
+.timeline-summary-block-right {
+  text-align: right;
 }
 
 .timeline-label {
@@ -191,12 +196,70 @@ button {
     0 10px 18px rgba(2, 6, 23, 0.5);
 }
 
+.timeline-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  align-self: center;
+}
+
+.timeline-control-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: #dbe7f8;
+  background: rgba(15, 23, 42, 0.78);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.timeline-control-button:hover {
+  border-color: rgba(56, 189, 248, 0.45);
+}
+
+.timeline-control-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.timeline-control-button:disabled:hover {
+  border-color: var(--border);
+}
+
 .timeline-endpoints {
   display: flex;
   justify-content: space-between;
   gap: 16px;
   color: var(--muted);
   font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .timeline-summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "selected rendered"
+      "controls controls";
+    align-items: start;
+  }
+
+  .timeline-summary-block:first-child {
+    grid-area: selected;
+  }
+
+  .timeline-summary-block-right {
+    grid-area: rendered;
+  }
+
+  .timeline-controls {
+    grid-area: controls;
+    margin-top: 4px;
+  }
 }
 
 .globe-scene {

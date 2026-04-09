@@ -19,6 +19,7 @@ declare global {
 }
 
 const TIMELINE_THROTTLE_MS = 10;
+const TIMELINE_PLAYBACK_INTERVAL_MS = 20;
 
 export function App() {
   const simulationState = DEFAULT_SIMULATION_STATE;
@@ -35,7 +36,9 @@ export function App() {
   } | null>(null);
   const [pendingFrameIndex, setPendingFrameIndex] = useState(0);
   const [visualFrameIndex, setVisualFrameIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
   const pendingFrameIndexRef = useRef(0);
+  const playbackIntervalRef = useRef<number | null>(null);
 
   const isScrubbingRef = useRef(false);
   const throttleRef = useRef<{
@@ -52,8 +55,12 @@ export function App() {
 
   const visualFrame = simulationState.frames[visualFrameIndex];
   pendingFrameIndexRef.current = pendingFrameIndex;
+  const lastFrameIndex = simulationState.frames.length - 1;
 
   const beginScrub = () => {
+    if (isPlaying) {
+      setIsPlaying(false);
+    }
     isScrubbingRef.current = true;
     throttleRef.current.hasCommittedDuringScrub = false;
     throttleRef.current.lastCommittedAt = performance.now();
@@ -66,6 +73,26 @@ export function App() {
     commitVisualFrame(pendingFrameIndexRef.current, setVisualFrameIndex, throttleRef);
   };
 
+  const pausePlayback = () => {
+    setIsPlaying(false);
+  };
+
+  const stepToFrame = (frameIndex: number) => {
+    const clampedIndex = Math.max(0, Math.min(lastFrameIndex, frameIndex));
+    setPendingFrameIndex(clampedIndex);
+    commitVisualFrame(clampedIndex, setVisualFrameIndex, throttleRef);
+  };
+
+  const playNextFrame = () => {
+    pausePlayback();
+    stepToFrame(pendingFrameIndex + 1);
+  };
+
+  const playPreviousFrame = () => {
+    pausePlayback();
+    stepToFrame(pendingFrameIndex - 1);
+  };
+
   useEffect(() => {
     window.addEventListener("pointerup", endScrub);
     window.addEventListener("pointercancel", endScrub);
@@ -75,6 +102,38 @@ export function App() {
       window.removeEventListener("pointercancel", endScrub);
     };
   });
+
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    playbackIntervalRef.current = window.setInterval(() => {
+      setPendingFrameIndex((current) => {
+        const nextFrameIndex = Math.min(current + 1, lastFrameIndex);
+        commitVisualFrame(nextFrameIndex, setVisualFrameIndex, throttleRef);
+        if (nextFrameIndex === lastFrameIndex) {
+          setIsPlaying(false);
+        }
+        return nextFrameIndex;
+      });
+    }, TIMELINE_PLAYBACK_INTERVAL_MS);
+
+    return () => {
+      if (playbackIntervalRef.current !== null) {
+        window.clearInterval(playbackIntervalRef.current);
+        playbackIntervalRef.current = null;
+      }
+    };
+  }, [isPlaying, lastFrameIndex]);
+
+  useEffect(
+    () => () => {
+      if (playbackIntervalRef.current !== null) {
+        window.clearInterval(playbackIntervalRef.current);
+        playbackIntervalRef.current = null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     window.__simulationDebug = {
@@ -101,6 +160,7 @@ export function App() {
   );
 
   const handleFrameInput = (frameIndex: number) => {
+    pausePlayback();
     setPendingFrameIndex(frameIndex);
 
     if (!isScrubbingRef.current) {
@@ -140,8 +200,19 @@ export function App() {
         frames={simulationState.frames}
         pendingFrameIndex={pendingFrameIndex}
         visualFrameIndex={visualFrameIndex}
+        isPlaying={isPlaying}
         onFrameInput={handleFrameInput}
         onScrubStart={beginScrub}
+        onNextFrame={playNextFrame}
+        onPreviousFrame={playPreviousFrame}
+        onPlayToggle={() => {
+          if (isPlaying) {
+            setIsPlaying(false);
+            return;
+          }
+          if (pendingFrameIndex === lastFrameIndex) return;
+          setIsPlaying(true);
+        }}
       />
     </main>
   );
