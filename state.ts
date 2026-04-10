@@ -1,10 +1,4 @@
-import {
-  deriveGroundStationState,
-  getNextGroundStationPointing,
-  normalizeDegrees,
-  type GroundStationPointing,
-} from "./src/lib/ground-station";
-import { buildSatelliteRecord, propagateSatelliteFrame } from "./src/lib/orbit";
+import { buildSimulationFrames as buildOrderedSimulationFrames } from "./src/lib/simulation/build-frame";
 
 export type SimulationState = {
   config: SimulationConfig;
@@ -161,21 +155,28 @@ export type SatelliteFrameState = {
   velocityEcefMps: Cartesian3;
 };
 
-export type SimulationFrame = {
-  index: number;
-  currentUnixMs: number;
-  satellite: SatelliteFrameState;
-  groundStation: GroundStationDerivedState;
+export type GroundStationPassWindowMetadata = {
+  kIn: number | null;
+  kApex: number | null;
+  kOut: number | null;
+  passDurationSeconds: number;
+  inPass: boolean;
 };
 
-export type GroundStationDerivedState = {
+export type GroundStationGeometryState = GroundStationPassWindowMetadata & {
   azimuthDeg: number;
   elevationDeg: number;
   slantRangeM: number;
+  rangeRateMps: number;
+  downlinkDopplerShiftHz: number;
+  uplinkDopplerShiftHz: number;
   horizonMaskElevationDeg: number;
   requiredElevationDeg: number;
   isAboveGeometricHorizon: boolean;
   clearsOperationalMask: boolean;
+};
+
+export type GroundStationPointingState = {
   commandedAzimuthDeg: number;
   commandedElevationDeg: number;
   trackedAzimuthDeg: number;
@@ -184,6 +185,16 @@ export type GroundStationDerivedState = {
   pointingElevationErrorDeg: number;
   pointingSeparationDeg: number;
 };
+
+export type SimulationFrame = {
+  index: number;
+  currentUnixMs: number;
+  satellite: SatelliteFrameState;
+  groundStation: GroundStationDerivedState;
+};
+
+export type GroundStationDerivedState = GroundStationGeometryState &
+  GroundStationPointingState;
 
 export const GROUND_STATION_STEERING_LIMITS = {
   maxAzimuthRateDegPerSecond: 1.2,
@@ -377,59 +388,16 @@ export const DEFAULT_SIMULATION_CLOCK: SimulationClock = {
 };
 
 export function buildSimulationFrames(
-  config: Pick<SimulationConfig, "tle" | "groundStation">,
+  config: Pick<SimulationConfig, "tle" | "groundStation" | "radio">,
   clock: SimulationClock,
   physicalConstants: PhysicalConstants,
 ): SimulationFrame[] {
-  if (clock.stepSeconds <= 0) {
-    throw new Error("Simulation clock stepSeconds must be greater than zero.");
-  }
-
-  if (clock.endUnixMs < clock.startUnixMs) {
-    throw new Error("Simulation clock endUnixMs must be >= startUnixMs.");
-  }
-
-  const stepMs = clock.stepSeconds * 1_000;
-  const satelliteRecord = buildSatelliteRecord(config.tle);
-  const frames: SimulationFrame[] = [];
-  let groundStationPointing: GroundStationPointing = {
-    azimuthDeg: normalizeDegrees(config.groundStation.antenna.azimuthDeg),
-    elevationDeg: config.groundStation.antenna.elevationDeg,
-  };
-
-  for (
-    let currentUnixMs = clock.startUnixMs, index = 0;
-    currentUnixMs <= clock.endUnixMs;
-    currentUnixMs += stepMs, index += 1
-  ) {
-    const satellite = propagateSatelliteFrame(satelliteRecord, currentUnixMs);
-    const derivedGroundStation = deriveGroundStationState(
-      config.groundStation,
-      physicalConstants,
-      satellite,
-      groundStationPointing,
-    );
-
-    frames.push({
-      index,
-      currentUnixMs,
-      satellite,
-      groundStation: derivedGroundStation,
-    });
-
-    groundStationPointing = getNextGroundStationPointing(
-      groundStationPointing,
-      {
-        azimuthDeg: derivedGroundStation.commandedAzimuthDeg,
-        elevationDeg: derivedGroundStation.commandedElevationDeg,
-      },
-      GROUND_STATION_STEERING_LIMITS,
-      clock.stepSeconds,
-      config.groundStation.minElevationDeg,
-    );
-  }
-
-  return frames;
+  return buildOrderedSimulationFrames(
+    config,
+    clock,
+    physicalConstants,
+    GROUND_STATION_STEERING_LIMITS,
+  );
 }
 
 export const DEFAULT_SIMULATION_STATE: SimulationState = {

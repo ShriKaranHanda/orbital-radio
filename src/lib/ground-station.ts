@@ -1,9 +1,8 @@
 import type {
   Cartesian3,
   GroundStationConfig,
-  GroundStationDerivedState,
+  GroundStationPointingState,
   PhysicalConstants,
-  SatelliteFrameState,
 } from "../../state";
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -26,43 +25,16 @@ export type GroundStationPointingRatesDegPerSecond = {
   maxElevationRateDegPerSecond: number;
 };
 
-export function deriveGroundStationState(
-  groundStation: GroundStationConfig,
-  physicalConstants: PhysicalConstants,
-  satellite: SatelliteFrameState,
-  trackedPointing: GroundStationPointing = {
-    azimuthDeg: groundStation.antenna.azimuthDeg,
-    elevationDeg: groundStation.antenna.elevationDeg,
-  },
-): GroundStationDerivedState {
-  const groundStationEcef = getGroundStationEcef(groundStation, physicalConstants);
-  const relativeVector = subtractVectors(
-    satellite.positionEcefM,
-    groundStationEcef,
-  );
-  const { eastM, northM, upM } = projectEcefVectorToEnu(relativeVector, groundStation);
-  const horizontalRangeM = Math.hypot(eastM, northM);
-  const slantRangeM = Math.hypot(horizontalRangeM, upM);
-  const azimuthDeg = normalizeDegrees(Math.atan2(eastM, northM) * RAD_TO_DEG);
-  const elevationDeg = Math.atan2(upM, horizontalRangeM) * RAD_TO_DEG;
-  const horizonMaskElevationDeg = getHorizonMaskElevationDeg(groundStation, azimuthDeg);
-  const requiredElevationDeg = Math.max(
-    groundStation.minElevationDeg,
-    horizonMaskElevationDeg,
-  );
-  const commandedAzimuthDeg = normalizeDegrees(azimuthDeg);
-  const commandedElevationDeg = elevationDeg;
+export function deriveGroundStationPointingState(
+  commandedPointing: GroundStationPointing,
+  trackedPointing: GroundStationPointing,
+): GroundStationPointingState {
+  const commandedAzimuthDeg = normalizeDegrees(commandedPointing.azimuthDeg);
+  const commandedElevationDeg = commandedPointing.elevationDeg;
   const trackedAzimuthDeg = normalizeDegrees(trackedPointing.azimuthDeg);
   const trackedElevationDeg = trackedPointing.elevationDeg;
 
   return {
-    azimuthDeg,
-    elevationDeg,
-    slantRangeM,
-    horizonMaskElevationDeg,
-    requiredElevationDeg,
-    isAboveGeometricHorizon: elevationDeg >= 0,
-    clearsOperationalMask: elevationDeg >= requiredElevationDeg,
     commandedAzimuthDeg,
     commandedElevationDeg,
     trackedAzimuthDeg,

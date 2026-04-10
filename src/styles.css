@@ -356,7 +356,8 @@ button {
   backdrop-filter: blur(16px);
 }
 
-.station-card {
+.station-card,
+.satellite-card {
   position: absolute;
   top: var(--page-gutter);
   right: var(--page-gutter);
@@ -536,7 +537,9 @@ button {
     --page-gutter: 12px;
   }
 
-  .station-card {
+  .station-card,
+  .satellite-card {
+    top: 12px;
     right: var(--page-gutter);
     left: var(--page-gutter);
     width: auto;
