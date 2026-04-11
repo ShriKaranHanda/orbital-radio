@@ -40,12 +40,14 @@ export function GroundStationCard({
 }: GroundStationCardProps) {
   return (
     <Card className="station-card">
-      <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
-        <X size={16} />
-      </button>
       <CardHeader>
-        <CardDescription>Ground station</CardDescription>
-        <CardTitle>{station.name}</CardTitle>
+        <div className="card-title-group">
+          <CardDescription>Ground station</CardDescription>
+          <CardTitle>{station.name}</CardTitle>
+        </div>
+        <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+          <X size={16} />
+        </button>
       </CardHeader>
       <CardContent>
         <div className="metric-grid">
