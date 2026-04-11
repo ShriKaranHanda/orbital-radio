@@ -217,6 +217,7 @@ export function App() {
           station={selectedStation}
           currentUnixMs={visualFrame.currentUnixMs}
           derivedState={visualFrame.groundStation}
+          hardwareState={visualFrame.hardware}
           onClose={() => setSelectedStation(null)}
         />
       ) : null}
@@ -226,6 +227,7 @@ export function App() {
           satellite={selectedSatellite}
           currentUnixMs={visualFrame.currentUnixMs}
           frameState={visualFrame.satellite}
+          hardwareState={visualFrame.hardware}
           onClose={() => setSelectedSatellite(null)}
         />
       ) : null}

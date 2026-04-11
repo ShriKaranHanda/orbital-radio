@@ -11,7 +11,9 @@ import {
   derivePassWindowMetadata,
   isFrameInPass,
 } from "./geometry";
+import { buildHardwareStates } from "./hardware";
 import type {
+  HardwareNominalConstants,
   PhysicalConstants,
   SimulationClock,
   SimulationConfig,
@@ -19,10 +21,14 @@ import type {
 } from "../../../state";
 
 export function buildSimulationFrames(
-  config: Pick<SimulationConfig, "tle" | "groundStation" | "radio">,
+  config: Pick<
+    SimulationConfig,
+    "tle" | "groundStation" | "radio" | "traffic" | "scenario"
+  >,
   clock: SimulationClock,
   physicalConstants: PhysicalConstants,
   steeringLimits: GroundStationPointingRatesDegPerSecond,
+  nominalConstants: HardwareNominalConstants,
 ): SimulationFrame[] {
   if (clock.stepSeconds <= 0) {
     throw new Error("Simulation clock stepSeconds must be greater than zero.");
@@ -72,7 +78,7 @@ export function buildSimulationFrames(
     elevationDeg: config.groundStation.antenna.elevationDeg,
   };
 
-  return geometryFrames.map((frame) => {
+  const framesWithoutHardware = geometryFrames.map((frame) => {
     const groundStation = {
       ...frame.geometry,
       ...passWindow,
@@ -104,4 +110,17 @@ export function buildSimulationFrames(
       groundStation,
     };
   });
+
+  const hardwareStates = buildHardwareStates(
+    framesWithoutHardware,
+    config,
+    clock,
+    physicalConstants,
+    nominalConstants,
+  );
+
+  return framesWithoutHardware.map((frame, index) => ({
+    ...frame,
+    hardware: hardwareStates[index],
+  }));
 }

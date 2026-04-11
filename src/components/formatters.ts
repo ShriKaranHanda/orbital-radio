@@ -33,6 +33,47 @@ export function formatFrequencyHz(value: number) {
   return `${value.toFixed(1)} Hz`;
 }
 
+export function formatDb(value: number) {
+  return `${value.toFixed(2)} dB`;
+}
+
+export function formatSignedDb(value: number) {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)} dB`;
+}
+
+export function formatPowerDbw(value: number) {
+  return `${value.toFixed(2)} dBW`;
+}
+
+export function formatPowerWatts(value: number) {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(2)} MW`;
+  }
+
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(2)} kW`;
+  }
+
+  return `${value.toFixed(1)} W`;
+}
+
+export function formatPercent(value: number) {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+export function formatTemperatureC(value: number) {
+  return `${value.toFixed(1)} °C`;
+}
+
+export function formatSeconds(value: number) {
+  if (value >= 1) {
+    return `${value.toFixed(2)} s`;
+  }
+
+  return `${(value * 1_000).toFixed(1)} ms`;
+}
+
 export function formatTimestamp(unixMs: number) {
   return new Intl.DateTimeFormat("en-US", {
     hour: "2-digit",
