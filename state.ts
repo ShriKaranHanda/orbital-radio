@@ -93,12 +93,38 @@ export type ScenarioConfig = {
   enabledFaults: readonly FaultConfig[];
 };
 
-// TODO: These should be stochastically determined based on sun position / other factors. Also should be able to introduce a fault and see downstream effects of that
+export type FaultKind =
+  | "failed_antenna_tile"
+  | "degraded_antenna_elements"
+  | "pa_efficiency_degradation"
+  | "oscillator_instability"
+  | "thermal_runaway"
+  | "compute_overload"
+  | "power_bus_derating"
+  | "rf_chain_degradation";
+
+export type FaultEffects = {
+  degradedElementFraction: number;
+  arrayThermalLossDb: number;
+  rfLossDb: number;
+  noiseFigureDb: number;
+  paPowerLimitDb: number;
+  paEfficiencyPenalty: number;
+  oscillatorOffsetHz: number;
+  oscillatorJitterSeconds: number;
+  busPenaltyDb: number;
+  computeLoadUnits: number;
+  thermalLoadW: number;
+};
+
 export type FaultConfig = {
   id: string;
   label: string;
   startOffsetSeconds: number;
   durationSeconds: number;
+  kind?: FaultKind;
+  severity?: number;
+  effects?: Partial<FaultEffects>;
 };
 
 export type SimulationClock = {
@@ -191,10 +217,141 @@ export type SimulationFrame = {
   currentUnixMs: number;
   satellite: SatelliteFrameState;
   groundStation: GroundStationDerivedState;
+  hardware: SimulationHardwareState;
 };
 
 export type GroundStationDerivedState = GroundStationGeometryState &
   GroundStationPointingState;
+
+export type ActiveFaultState = {
+  id: string;
+  label: string;
+  kind: FaultKind | "custom";
+  severity: number;
+  effects: FaultEffects;
+};
+
+export type GroundTerminalHardwareState = {
+  txPowerOffsetDb: number;
+  rxGainOffsetDb: number;
+  txGainOffsetDb: number;
+  rxNoiseFigureOffsetDb: number;
+  rxNoiseFigureDb: number;
+  referenceOffsetHz: number;
+  txEvmRms: number;
+  pointingLossDb: number;
+  effectiveRxGainDbi: number;
+  effectiveTxGainDbi: number;
+  txPowerDbw: number;
+};
+
+export type SatelliteSteeringHardwareState = {
+  steeringAngleDeg: number;
+  fieldOfRegardDeg: number;
+  clearsFieldOfRegard: boolean;
+  linkEnabled: boolean;
+};
+
+export type SatellitePhasedArrayHardwareState = {
+  activeElementCount: number;
+  degradedElementFraction: number;
+  idealGainDbi: number;
+  scanLossDb: number;
+  phaseLossDb: number;
+  thermalLossDb: number;
+  pointingLossDb: number;
+  arrayGainDbi: number;
+  txGainDbi: number;
+  rxGainDbi: number;
+  beamwidthDeg: number;
+  beamQuality: number;
+  phaseErrorStdRad: number;
+};
+
+export type SatelliteRfHardwareState = {
+  txLossDb: number;
+  noiseFigureDb: number;
+  satelliteRxNoiseFigureDb: number;
+};
+
+export type SatellitePowerAmplifierHardwareState = {
+  requestedOutputPowerDbw: number;
+  limitedOutputPowerDbw: number;
+  appliedOutputPowerDbw: number;
+  saturationReferenceDbw: number;
+  inputBackoffDb: number;
+  compressionLossDb: number;
+  efficiency: number;
+  rfOutputPowerW: number;
+  dcDrawW: number;
+  busPenaltyDb: number;
+  temperatureDeratingDb: number;
+};
+
+export type SatelliteOscillatorHardwareState = {
+  absoluteOffsetHz: number;
+  scheduleLagFrames: number;
+  downlinkDopplerEstimateHz: number;
+  uplinkDopplerEstimateHz: number;
+  downlinkResidualHz: number;
+  uplinkResidualHz: number;
+  timingJitterSeconds: number;
+};
+
+export type SatelliteThermalHardwareState = {
+  arrayTempC: number;
+  paTempC: number;
+  rfTempC: number;
+  oscillatorTempC: number;
+  sunExposure: number;
+  solarGenerationW: number;
+  thermalControlPowerW: number;
+};
+
+export type SatellitePowerBusHardwareState = {
+  batteryEnergyJ: number;
+  batterySoc: number;
+  availablePowerW: number;
+  loadPowerW: number;
+  sheddingFactor: number;
+};
+
+export type SatelliteComputeHardwareState = {
+  demandUnits: number;
+  backlogUnits: number;
+  utilization: number;
+  scheduleDelaySeconds: number;
+  powerDrawW: number;
+};
+
+export type HardwareReasonTag =
+  | "array_scan_loss"
+  | "field_of_regard"
+  | "freq_error"
+  | "pa_backoff"
+  | "thermal_throttle"
+  | "compute_overload"
+  | "power_limited";
+
+export type HardwareReasonState = {
+  activeTags: readonly HardwareReasonTag[];
+  dominantTag: HardwareReasonTag | null;
+  scores: Record<HardwareReasonTag, number>;
+};
+
+export type SimulationHardwareState = {
+  activeFaults: readonly ActiveFaultState[];
+  steering: SatelliteSteeringHardwareState;
+  groundTerminal: GroundTerminalHardwareState;
+  phasedArray: SatellitePhasedArrayHardwareState;
+  rfFrontEnd: SatelliteRfHardwareState;
+  powerAmplifier: SatellitePowerAmplifierHardwareState;
+  oscillator: SatelliteOscillatorHardwareState;
+  thermal: SatelliteThermalHardwareState;
+  powerBus: SatellitePowerBusHardwareState;
+  compute: SatelliteComputeHardwareState;
+  reason: HardwareReasonState;
+};
 
 export const GROUND_STATION_STEERING_LIMITS = {
   maxAzimuthRateDegPerSecond: 1.2,
@@ -369,7 +526,40 @@ export const DEFAULT_SIMULATION_CONFIG: SimulationConfig = {
   },
   scenario: {
     seed: 44714,
-    enabledFaults: [],
+    enabledFaults: [
+      {
+        id: "array-tile-degradation",
+        label: "Antenna tile degradation",
+        kind: "failed_antenna_tile",
+        severity: 0.8,
+        startOffsetSeconds: 443,
+        durationSeconds: 80,
+      },
+      {
+        id: "compute-overload",
+        label: "Onboard compute overload",
+        kind: "compute_overload",
+        severity: 0.75,
+        startOffsetSeconds: 637,
+        durationSeconds: 60,
+      },
+      {
+        id: "power-bus-derating",
+        label: "Power bus derating",
+        kind: "power_bus_derating",
+        severity: 0.65,
+        startOffsetSeconds: 770,
+        durationSeconds: 50,
+      },
+      {
+        id: "oscillator-instability",
+        label: "Oscillator instability burst",
+        kind: "oscillator_instability",
+        severity: 0.7,
+        startOffsetSeconds: 951,
+        durationSeconds: 40,
+      },
+    ],
   },
 };
 
@@ -388,7 +578,10 @@ export const DEFAULT_SIMULATION_CLOCK: SimulationClock = {
 };
 
 export function buildSimulationFrames(
-  config: Pick<SimulationConfig, "tle" | "groundStation" | "radio">,
+  config: Pick<
+    SimulationConfig,
+    "tle" | "groundStation" | "radio" | "traffic" | "scenario"
+  >,
   clock: SimulationClock,
   physicalConstants: PhysicalConstants,
 ): SimulationFrame[] {
@@ -397,6 +590,7 @@ export function buildSimulationFrames(
     clock,
     physicalConstants,
     GROUND_STATION_STEERING_LIMITS,
+    HARDWARE_NOMINAL_CONSTANTS,
   );
 }
 

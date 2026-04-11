@@ -1,12 +1,15 @@
-import type { GroundStationDerivedState } from "../../state";
+import type { GroundStationDerivedState, SimulationHardwareState } from "../../state";
 import { X } from "lucide-react";
 import { formatCoordinate } from "../lib/geo";
 import type { GroundStation } from "../types";
 import {
   formatAzimuth,
+  formatDb,
   formatDegrees,
   formatDistanceMeters,
   formatFrequencyHz,
+  formatPercent,
+  formatPowerDbw,
   formatSignedDegrees,
   formatSpeedMetersPerSecond,
   formatTimestamp,
@@ -29,6 +32,7 @@ type GroundStationCardProps = {
   station: GroundStation;
   currentUnixMs: number;
   derivedState: GroundStationDerivedState;
+  hardwareState: SimulationHardwareState;
   onClose: () => void;
 };
 
@@ -36,6 +40,7 @@ export function GroundStationCard({
   station,
   currentUnixMs,
   derivedState,
+  hardwareState,
   onClose,
 }: GroundStationCardProps) {
   return (
@@ -53,12 +58,13 @@ export function GroundStationCard({
           <Metric label="Look elevation" value={formatDegrees(derivedState.elevationDeg)} />
           <Metric label="Slant range" value={formatDistanceMeters(derivedState.slantRangeM)} />
           <Metric label="Range rate" value={formatSpeedMetersPerSecond(derivedState.rangeRateMps)} />
+          <Metric label="RX gain" value={`${hardwareState.groundTerminal.effectiveRxGainDbi.toFixed(1)} dBi`} />
           <Metric label="Pass state" value={derivedState.inPass ? "In pass" : "Out of pass"} />
         </div>
 
         <Accordion
           type="multiple"
-          defaultValue={["location", "visibility", "pass", "antenna", "geometry"]}
+          defaultValue={["location", "visibility", "pass", "antenna", "geometry", "terminal"]}
           className="accordion"
         >
           <AccordionItem value="location">
@@ -200,6 +206,42 @@ export function GroundStationCard({
               <p className="detail-note">
                 Azimuth is measured from local north and increases clockwise toward east.
               </p>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="terminal">
+            <AccordionTrigger>Terminal Hardware</AccordionTrigger>
+            <AccordionContent>
+              <dl className="detail-list">
+                <Detail
+                  label="TX power"
+                  value={formatPowerDbw(hardwareState.groundTerminal.txPowerDbw)}
+                />
+                <Detail
+                  label="Effective RX gain"
+                  value={`${hardwareState.groundTerminal.effectiveRxGainDbi.toFixed(2)} dBi`}
+                />
+                <Detail
+                  label="Effective TX gain"
+                  value={`${hardwareState.groundTerminal.effectiveTxGainDbi.toFixed(2)} dBi`}
+                />
+                <Detail
+                  label="Pointing loss"
+                  value={formatDb(hardwareState.groundTerminal.pointingLossDb)}
+                />
+                <Detail
+                  label="RX noise figure"
+                  value={formatDb(hardwareState.groundTerminal.rxNoiseFigureDb)}
+                />
+                <Detail
+                  label="Reference offset"
+                  value={formatFrequencyHz(hardwareState.groundTerminal.referenceOffsetHz)}
+                />
+                <Detail
+                  label="TX EVM"
+                  value={formatPercent(hardwareState.groundTerminal.txEvmRms)}
+                />
+              </dl>
             </AccordionContent>
           </AccordionItem>
         </Accordion>

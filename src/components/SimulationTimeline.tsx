@@ -1,6 +1,13 @@
+import { useMemo } from "react";
 import type { SimulationClock, SimulationFrame } from "../../state";
 import { getElapsedSeconds } from "../lib/simulation-visuals";
 import { ChevronLeft, ChevronRight, Pause, Play } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
 
 type SimulationTimelineProps = {
   clock: SimulationClock;
@@ -29,6 +36,7 @@ export function SimulationTimeline({
 }: SimulationTimelineProps) {
   const pendingFrame = frames[pendingFrameIndex];
   const visualFrame = frames[visualFrameIndex];
+  const faultWindows = useMemo(() => buildFaultWindows(frames), [frames]);
 
   return (
     <section className="timeline-panel" aria-label="Simulation timeline panel">
@@ -75,22 +83,69 @@ export function SimulationTimeline({
         </div>
       </div>
 
-      <input
-        className="timeline-slider"
-        aria-label="Simulation timeline"
-        type="range"
-        min={0}
-        max={frames.length - 1}
-        step={1}
-        value={pendingFrameIndex}
-        onInput={(event) =>
-          onFrameInput(Number((event.target as HTMLInputElement).value))
-        }
-        onChange={(event) =>
-          onFrameInput(Number((event.target as HTMLInputElement).value))
-        }
-        onPointerDown={onScrubStart}
-      />
+      <div className="timeline-track-shell">
+        <TooltipProvider>
+          <div
+            className="timeline-fault-track"
+            aria-label="Fault timeline overlay"
+          >
+            {faultWindows.map((window) => (
+              <Tooltip key={window.windowKey}>
+                <TooltipTrigger asChild>
+                  <button
+                    className="timeline-fault-window"
+                    type="button"
+                    style={{
+                      left: `${window.startPercent}%`,
+                      width: `${window.widthPercent}%`,
+                      top: `${window.lane * 16}px`,
+                    }}
+                    tabIndex={0}
+                    aria-label={`${window.label}, ${formatTimestamp(
+                      window.startUnixMs,
+                    )} to ${formatTimestamp(window.endUnixMs)}`}
+                  />
+                </TooltipTrigger>
+                <TooltipContent
+                  side="top"
+                  align="start"
+                  sideOffset={6}
+                  className="timeline-fault-tooltip"
+                >
+                  <strong>{window.label}</strong>
+                  <span>
+                    {formatTimestamp(window.startUnixMs)} to{" "}
+                    {formatTimestamp(window.endUnixMs)}
+                  </span>
+                  <span>
+                    Frames {window.startFrameIndex} to {window.endFrameIndex}
+                  </span>
+                  <span>Kind {formatFaultKind(window.kind)}</span>
+                  <span>Severity {(window.severity ?? 1).toFixed(2)}</span>
+                  <span>{formatFaultEffects(window.effectEntries)}</span>
+                </TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+        </TooltipProvider>
+
+        <input
+          className="timeline-slider"
+          aria-label="Simulation timeline"
+          type="range"
+          min={0}
+          max={frames.length - 1}
+          step={1}
+          value={pendingFrameIndex}
+          onInput={(event) =>
+            onFrameInput(Number((event.target as HTMLInputElement).value))
+          }
+          onChange={(event) =>
+            onFrameInput(Number((event.target as HTMLInputElement).value))
+          }
+          onPointerDown={onScrubStart}
+        />
+      </div>
 
       <div className="timeline-endpoints" aria-hidden="true">
         <span>{formatTimestamp(clock.startUnixMs)}</span>
@@ -98,6 +153,104 @@ export function SimulationTimeline({
       </div>
     </section>
   );
+}
+
+type FaultWindow = {
+  windowKey: string;
+  id: string;
+  label: string;
+  kind: string;
+  severity: number | undefined;
+  startFrameIndex: number;
+  endFrameIndex: number;
+  startUnixMs: number;
+  endUnixMs: number;
+  startPercent: number;
+  widthPercent: number;
+  lane: number;
+  effectEntries: Array<[string, number]>;
+};
+
+function buildFaultWindows(frames: readonly SimulationFrame[]): FaultWindow[] {
+  if (frames.length === 0) {
+    return [];
+  }
+
+  const frameStepMs =
+    frames.length > 1 ? frames[1].currentUnixMs - frames[0].currentUnixMs : 1_000;
+  const windows: Array<Omit<FaultWindow, "startPercent" | "widthPercent" | "lane">> = [];
+  const activeWindows = new Map<
+    string,
+    Omit<FaultWindow, "startPercent" | "widthPercent" | "lane">
+  >();
+
+  for (const frame of frames) {
+    const activeIds = new Set(frame.hardware.activeFaults.map((fault) => fault.id));
+
+    for (const [faultId, activeWindow] of activeWindows) {
+      if (!activeIds.has(faultId)) {
+        windows.push(activeWindow);
+        activeWindows.delete(faultId);
+      }
+    }
+
+    for (const fault of frame.hardware.activeFaults) {
+      const existingWindow = activeWindows.get(fault.id);
+
+      if (!existingWindow) {
+        activeWindows.set(fault.id, {
+          windowKey: `${fault.id}-${frame.index}`,
+          id: fault.id,
+          label: fault.label,
+          kind: fault.kind,
+          severity: fault.severity,
+          startFrameIndex: frame.index,
+          endFrameIndex: frame.index,
+          startUnixMs: frame.currentUnixMs,
+          endUnixMs: frame.currentUnixMs + frameStepMs,
+          effectEntries: Object.entries(fault.effects).filter(
+            ([, value]) => value !== 0,
+          ) as Array<[string, number]>,
+        });
+        continue;
+      }
+
+      existingWindow.endFrameIndex = frame.index;
+      existingWindow.endUnixMs = frame.currentUnixMs + frameStepMs;
+    }
+  }
+
+  windows.push(...activeWindows.values());
+
+  const totalFrameCount = Math.max(1, frames.length - 1);
+  const sortedWindows = windows.sort(
+    (left, right) => left.startFrameIndex - right.startFrameIndex,
+  );
+  const laneEndFrames: number[] = [];
+
+  return sortedWindows.map((window) => {
+    let lane = 0;
+    while (
+      lane < laneEndFrames.length &&
+      window.startFrameIndex <= laneEndFrames[lane]
+    ) {
+      lane += 1;
+    }
+    laneEndFrames[lane] = window.endFrameIndex;
+
+    const startPercent = (window.startFrameIndex / totalFrameCount) * 100;
+    const widthPercent = Math.max(
+      ((window.endFrameIndex - window.startFrameIndex + 1) / totalFrameCount) * 100,
+      0.5,
+    );
+
+    return {
+      ...window,
+      startPercent,
+      widthPercent,
+      lane,
+    };
+  });
 }
 
 function formatTimestamp(unixMs: number) {
@@ -110,4 +263,34 @@ function formatTimestamp(unixMs: number) {
     timeZone: "UTC",
     hour12: false,
   }).format(unixMs);
+}
+
+function formatFaultKind(value: string) {
+  return value.replaceAll("_", " ");
+}
+
+function formatFaultEffects(entries: Array<[string, number]>) {
+  if (entries.length === 0) {
+    return "No explicit effect overrides";
+  }
+
+  return entries
+    .map(([key, value]) => `${formatFaultEffectKey(key)} ${formatFaultEffectValue(value)}`)
+    .join(", ");
+}
+
+function formatFaultEffectKey(key: string) {
+  return key.replaceAll(/([A-Z])/g, " $1").replaceAll("_", " ").toLowerCase();
+}
+
+function formatFaultEffectValue(value: number) {
+  if (Math.abs(value) >= 1_000) {
+    return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  }
+
+  if (Math.abs(value) >= 1) {
+    return value.toFixed(2);
+  }
+
+  return value.toExponential(2);
 }
