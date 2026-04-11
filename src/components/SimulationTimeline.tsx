@@ -37,6 +37,10 @@ export function SimulationTimeline({
   const pendingFrame = frames[pendingFrameIndex];
   const visualFrame = frames[visualFrameIndex];
   const faultWindows = useMemo(() => buildFaultWindows(frames), [frames]);
+  const passMarkers = useMemo(
+    () => buildPassWindowMarkers(frames, pendingFrame),
+    [frames, pendingFrame],
+  );
 
   return (
     <section className="timeline-panel" aria-label="Simulation timeline panel">
@@ -85,6 +89,31 @@ export function SimulationTimeline({
 
       <div className="timeline-track-shell">
         <TooltipProvider>
+          <div className="timeline-pass-markers">
+            {passMarkers.map((marker) => (
+              <Tooltip key={marker.frameKey}>
+                <TooltipTrigger asChild>
+                  <button
+                    className="timeline-pass-marker"
+                    type="button"
+                    style={{ left: `${marker.leftPercent}%` }}
+                    aria-label={`${marker.labels} at frame ${marker.frameIndex}`}
+                    title={`${marker.labels} (frame ${marker.frameIndex})`}
+                  >
+                    <span className="timeline-pass-marker-line" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="top"
+                  sideOffset={4}
+                  className="timeline-pass-marker-tooltip"
+                >
+                  {marker.labels} (frame {marker.frameIndex})
+                </TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+
           <div
             className="timeline-fault-track"
             aria-label="Fault timeline overlay"
@@ -171,6 +200,13 @@ type FaultWindow = {
   effectEntries: Array<[string, number]>;
 };
 
+type PassWindowMarker = {
+  frameKey: string;
+  frameIndex: number;
+  labels: string;
+  leftPercent: number;
+};
+
 function buildFaultWindows(frames: readonly SimulationFrame[]): FaultWindow[] {
   if (frames.length === 0) {
     return [];
@@ -251,6 +287,42 @@ function buildFaultWindows(frames: readonly SimulationFrame[]): FaultWindow[] {
       lane,
     };
   });
+}
+
+function buildPassWindowMarkers(
+  frames: readonly SimulationFrame[],
+  frame: SimulationFrame,
+): PassWindowMarker[] {
+  if (frames.length === 0) {
+    return [];
+  }
+
+  const totalFrameCount = Math.max(1, frames.length - 1);
+  const markersByFrame = new Map<number, string[]>();
+
+  const addMarker = (frameIndex: number | null, label: string) => {
+    if (frameIndex === null || frameIndex < 0 || frameIndex >= frames.length) {
+      return;
+    }
+    const existingLabels = markersByFrame.get(frameIndex) ?? [];
+    existingLabels.push(label);
+    markersByFrame.set(frameIndex, existingLabels);
+  };
+
+  addMarker(frame.groundStation.kIn, "kIn");
+  addMarker(frame.groundStation.kApex, "kApex");
+  addMarker(frame.groundStation.kOut, "kOut");
+
+  return [...markersByFrame.entries()]
+    .map(([frameIndex, labels]) => {
+      return {
+        frameKey: `${frameIndex}-${labels.join("-")}`,
+        frameIndex,
+        labels: labels.join(" / "),
+        leftPercent: (frameIndex / totalFrameCount) * 100,
+      };
+    })
+    .sort((left, right) => left.frameIndex - right.frameIndex);
 }
 
 function formatTimestamp(unixMs: number) {
