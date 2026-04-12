@@ -46,8 +46,8 @@ type GlobeSceneProps = {
 };
 
 const EARTH_RADIUS = 2.25;
-const DEFAULT_CAMERA_POSITION = new Vector3(0, 1.35, 6.4);
-const DEFAULT_CAMERA_DISTANCE = DEFAULT_CAMERA_POSITION.length();
+const EARTH_TEXTURE_URL = "/textures/earth-blue-marble-topography.jpg";
+const DEFAULT_CAMERA_DISTANCE = Math.hypot(0, 1.35, 6.4);
 const DEFAULT_ROTATE_SPEED = 0.55;
 const ZOOM_ANIMATION_MS = 650;
 
@@ -75,13 +75,19 @@ export function GlobeScene({
     const scene = new Scene();
     scene.background = new Color("#02040a");
 
+    const stationDirection = latLonToUnitVector(
+      groundStation.latDeg,
+      groundStation.lonDeg,
+    );
+    const stationPosition = stationDirection.clone().multiplyScalar(EARTH_RADIUS * 1.018);
+
     const camera = new PerspectiveCamera(
       42,
       mount.clientWidth / mount.clientHeight,
       0.1,
       100,
     );
-    camera.position.copy(DEFAULT_CAMERA_POSITION);
+    camera.position.copy(stationDirection.clone().multiplyScalar(DEFAULT_CAMERA_DISTANCE));
 
     const renderer = new WebGLRenderer({
       antialias: true,
@@ -116,7 +122,7 @@ export function GlobeScene({
     );
     scene.add(earth);
 
-    new TextureLoader().load("/textures/earth-atmos.jpg", (texture) => {
+    new TextureLoader().load(EARTH_TEXTURE_URL, (texture) => {
       earth.material.map = texture;
       earth.material.color = new Color("#ffffff");
       earth.material.needsUpdate = true;
@@ -143,11 +149,6 @@ export function GlobeScene({
     );
     scene.add(atmosphere);
 
-    const stationDirection = latLonToUnitVector(
-      groundStation.latDeg,
-      groundStation.lonDeg,
-    );
-    const stationPosition = stationDirection.clone().multiplyScalar(EARTH_RADIUS * 1.018);
     const marker = new Mesh(
       new SphereGeometry(0.055, 32, 32),
       new MeshBasicMaterial({ color: "#38bdf8" }),
