@@ -8,11 +8,7 @@ type SimulationState = {
 };
 
 type SimulationConfig = {
-  tle: {
-    name: string;
-    line1: string;
-    line2: string;
-  };
+  tle: TleElements;
 
   groundStation: {
     name: string;
@@ -38,6 +34,39 @@ type SimulationConfig = {
     seed: number;
     enabledFaults: FaultConfig[];
   };
+};
+
+type TleElements = {
+  name: string;
+
+  satelliteCatalogNumber: number;
+  classification: "U" | "C" | "S";
+  internationalDesignator: {
+    launchYear: number;
+    launchNumberOfYear: number;
+    launchPiece: string;
+  };
+  epoch: {
+    year: number;
+    dayOfYear: number;
+    fractionalDay: number;
+  };
+
+  meanMotionFirstDerivative: number;
+  meanMotionSecondDerivative: number;
+  bstarDragTerm: number;
+  ephemerisType: number;
+  elementSetNumber: number;
+  line1Checksum: number;
+
+  inclinationDeg: number;
+  rightAscensionAscendingNodeDeg: number;
+  eccentricity: number;
+  argumentOfPerigeeDeg: number;
+  meanAnomalyDeg: number;
+  meanMotionRevsPerDay: number;
+  revolutionNumberAtEpoch: number;
+  line2Checksum: number;
 };
 
 type RadioLinkConfig = {
