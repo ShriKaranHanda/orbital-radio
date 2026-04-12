@@ -226,6 +226,7 @@ export function App() {
           satellite={selectedSatellite}
           currentUnixMs={visualFrame.currentUnixMs}
           frameState={visualFrame.satellite}
+          sunState={visualFrame.sun}
           onClose={() => setSelectedSatellite(null)}
         />
       ) : null}

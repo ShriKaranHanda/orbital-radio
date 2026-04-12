@@ -11,6 +11,7 @@ import {
   derivePassWindowMetadata,
   isFrameInPass,
 } from "./geometry";
+import { deriveSunState } from "./sun";
 import type {
   PhysicalConstants,
   SimulationClock,
@@ -51,6 +52,7 @@ export function buildSimulationFrames(
 
   const geometryFrames = propagatedFrames.map((frame) => ({
     ...frame,
+    sun: deriveSunState(frame.currentUnixMs, frame.satellite, physicalConstants),
     geometry: deriveGroundStationGeometryState(
       config.groundStation,
       config.radio,
@@ -102,6 +104,7 @@ export function buildSimulationFrames(
       currentUnixMs: frame.currentUnixMs,
       satellite: frame.satellite,
       groundStation,
+      sun: frame.sun,
     };
   });
 }
