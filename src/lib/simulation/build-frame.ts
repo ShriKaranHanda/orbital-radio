@@ -12,6 +12,7 @@ import {
   isFrameInPass,
 } from "./geometry";
 import { buildHardwareStates } from "./hardware";
+import { deriveSunState } from "./sun";
 import type {
   HardwareNominalConstants,
   PhysicalConstants,
@@ -57,6 +58,7 @@ export function buildSimulationFrames(
 
   const geometryFrames = propagatedFrames.map((frame) => ({
     ...frame,
+    sun: deriveSunState(frame.currentUnixMs, frame.satellite, physicalConstants),
     geometry: deriveGroundStationGeometryState(
       config.groundStation,
       config.radio,
@@ -108,6 +110,7 @@ export function buildSimulationFrames(
       currentUnixMs: frame.currentUnixMs,
       satellite: frame.satellite,
       groundStation,
+      sun: frame.sun,
     };
   });
 

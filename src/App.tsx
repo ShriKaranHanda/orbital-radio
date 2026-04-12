@@ -228,6 +228,7 @@ export function App() {
           currentUnixMs={visualFrame.currentUnixMs}
           frameState={visualFrame.satellite}
           hardwareState={visualFrame.hardware}
+          sunState={visualFrame.sun}
           onClose={() => setSelectedSatellite(null)}
         />
       ) : null}
