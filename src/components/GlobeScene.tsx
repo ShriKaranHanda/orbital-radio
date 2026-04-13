@@ -7,6 +7,7 @@ import {
   Color,
   DirectionalLight,
   Float32BufferAttribute,
+  Group,
   Mesh,
   MeshBasicMaterial,
   MeshPhongMaterial,
@@ -20,7 +21,13 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { latLonToUnitVector } from "../lib/geo";
+import type { SimulationClock, SimulationFrame } from "../../state";
+import {
+  getCloudRotationRad,
+  getEarthRotationRad,
+  getPulseScale,
+  getGroundStationLocalVector,
+} from "../lib/simulation-visuals";
 import type { GroundStation } from "../types";
 
 declare global {
@@ -30,6 +37,8 @@ declare global {
       getCameraDistance: () => number;
       getControlsTarget: () => { x: number; y: number; z: number };
       getStationScreenPosition: () => { x: number; y: number };
+      getEarthRotationY: () => number;
+      getDisplayedUnixMs: () => number;
       isAnimating: () => boolean;
     };
     __globeTestAnimationMs?: number;
@@ -37,12 +46,25 @@ declare global {
 }
 
 type GlobeSceneProps = {
+  clock: SimulationClock;
+  frame: SimulationFrame;
   groundStation: GroundStation;
   selectedStation: GroundStation | null;
   onGroundStationHover: (
     hover: { station: GroundStation; x: number; y: number } | null,
   ) => void;
   onGroundStationSelect: (station: GroundStation) => void;
+};
+
+type SceneHandles = {
+  camera: PerspectiveCamera;
+  controls: OrbitControls;
+  renderer: WebGLRenderer;
+  earthGroup: Group;
+  cloudLayer: Mesh;
+  marker: Mesh;
+  pulse: Mesh;
+  stationWorldPosition: Vector3;
 };
 
 const EARTH_RADIUS = 2.25;
@@ -53,13 +75,16 @@ const ZOOM_ANIMATION_MS = 650;
 
 // TODO: Make the earth dark mode. Looks better
 export function GlobeScene({
+  clock,
+  frame,
   groundStation,
   selectedStation,
   onGroundStationHover,
   onGroundStationSelect,
 }: GlobeSceneProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
-  const selectedStationRef = useRef<GroundStation | null>(selectedStation);
+  const sceneRef = useRef<SceneHandles | null>(null);
+  const currentFrameRef = useRef(frame);
   const selectionTransitionRef = useRef<{
     previous: GroundStation | null;
     current: GroundStation | null;
@@ -69,17 +94,16 @@ export function GlobeScene({
   });
 
   useEffect(() => {
+    currentFrameRef.current = frame;
+    applyFrameToScene(sceneRef.current, clock, frame);
+  }, [clock, frame]);
+
+  useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
 
     const scene = new Scene();
     scene.background = new Color("#02040a");
-
-    const stationDirection = latLonToUnitVector(
-      groundStation.latDeg,
-      groundStation.lonDeg,
-    );
-    const stationPosition = stationDirection.clone().multiplyScalar(EARTH_RADIUS * 1.018);
 
     const camera = new PerspectiveCamera(
       42,
@@ -87,7 +111,6 @@ export function GlobeScene({
       0.1,
       100,
     );
-    camera.position.copy(stationDirection.clone().multiplyScalar(DEFAULT_CAMERA_DISTANCE));
 
     const renderer = new WebGLRenderer({
       antialias: true,
@@ -112,6 +135,9 @@ export function GlobeScene({
     sun.position.set(-2.2, 1.4, 4.8);
     scene.add(sun);
 
+    const earthGroup = new Group();
+    scene.add(earthGroup);
+
     const earth = new Mesh(
       new SphereGeometry(EARTH_RADIUS, 128, 128),
       new MeshPhongMaterial({
@@ -120,7 +146,7 @@ export function GlobeScene({
         specular: "#244c69",
       }),
     );
-    scene.add(earth);
+    earthGroup.add(earth);
 
     new TextureLoader().load(EARTH_TEXTURE_URL, (texture) => {
       earth.material.map = texture;
@@ -136,7 +162,7 @@ export function GlobeScene({
         opacity: 0.18,
       }),
     );
-    scene.add(cloudLayer);
+    earthGroup.add(cloudLayer);
 
     const atmosphere = new Mesh(
       new SphereGeometry(EARTH_RADIUS * 1.035, 96, 96),
@@ -147,15 +173,24 @@ export function GlobeScene({
         side: BackSide,
       }),
     );
-    scene.add(atmosphere);
+    earthGroup.add(atmosphere);
+
+    const stationLocalPosition = getGroundStationLocalVector(
+      groundStation,
+      EARTH_RADIUS * 1.018,
+    );
 
     const marker = new Mesh(
       new SphereGeometry(0.055, 32, 32),
       new MeshBasicMaterial({ color: "#38bdf8" }),
     );
-    marker.position.copy(stationPosition);
+    marker.position.set(
+      stationLocalPosition.x,
+      stationLocalPosition.y,
+      stationLocalPosition.z,
+    );
     marker.userData.stationId = groundStation.id;
-    scene.add(marker);
+    earthGroup.add(marker);
 
     const pulse = new Mesh(
       new SphereGeometry(0.09, 32, 32),
@@ -165,10 +200,27 @@ export function GlobeScene({
         opacity: 0.26,
       }),
     );
-    pulse.position.copy(stationPosition);
-    scene.add(pulse);
+    pulse.position.copy(marker.position);
+    earthGroup.add(pulse);
 
     scene.add(createStarField());
+
+    const stationWorldPosition = new Vector3();
+    marker.getWorldPosition(stationWorldPosition);
+    camera.position.copy(stationWorldPosition.clone().normalize().multiplyScalar(DEFAULT_CAMERA_DISTANCE));
+
+    const handles: SceneHandles = {
+      camera,
+      controls,
+      renderer,
+      earthGroup,
+      cloudLayer,
+      marker,
+      pulse,
+      stationWorldPosition,
+    };
+    sceneRef.current = handles;
+    applyFrameToScene(handles, clock, currentFrameRef.current);
 
     let isHoveringStation = false;
     let pointerDownPosition: { x: number; y: number } | null = null;
@@ -196,6 +248,17 @@ export function GlobeScene({
       }
     };
 
+    const getProjectedStationScreenPosition = () => {
+      marker.getWorldPosition(stationWorldPosition);
+      const rect = renderer.domElement.getBoundingClientRect();
+      const projected = stationWorldPosition.clone().project(camera);
+      return {
+        projected,
+        x: ((projected.x + 1) / 2) * rect.width + rect.left,
+        y: ((1 - projected.y) / 2) * rect.height + rect.top,
+      };
+    };
+
     window.__globeDebug = {
       getCameraPosition: () => ({
         x: camera.position.x,
@@ -209,22 +272,17 @@ export function GlobeScene({
         z: controls.target.z,
       }),
       getStationScreenPosition: () => {
-        const rect = renderer.domElement.getBoundingClientRect();
-        const projected = stationPosition.clone().project(camera);
-        return {
-          x: ((projected.x + 1) / 2) * rect.width + rect.left,
-          y: ((1 - projected.y) / 2) * rect.height + rect.top,
-        };
+        const { x, y } = getProjectedStationScreenPosition();
+        return { x, y };
       },
+      getEarthRotationY: () => earthGroup.rotation.y,
+      getDisplayedUnixMs: () => currentFrameRef.current.currentUnixMs,
       isAnimating: () => zoomAnimation !== null,
     };
 
     const intersectsMarker = (event: PointerEvent) => {
-      const rect = renderer.domElement.getBoundingClientRect();
-      const projected = stationPosition.clone().project(camera);
-      const markerX = ((projected.x + 1) / 2) * rect.width + rect.left;
-      const markerY = ((1 - projected.y) / 2) * rect.height + rect.top;
-      const distancePx = Math.hypot(event.clientX - markerX, event.clientY - markerY);
+      const { projected, x, y } = getProjectedStationScreenPosition();
+      const distancePx = Math.hypot(event.clientX - x, event.clientY - y);
       return projected.z < 1 && distancePx < 22;
     };
 
@@ -265,8 +323,8 @@ export function GlobeScene({
       if (movedPx > 6 || !intersectsMarker(event)) return;
 
       onGroundStationSelect(groundStation);
-      const normal = stationPosition.clone().normalize();
-      animateCameraTo(normal.multiplyScalar(4.15));
+      marker.getWorldPosition(stationWorldPosition);
+      animateCameraTo(stationWorldPosition.clone().normalize().multiplyScalar(4.15));
     };
 
     renderer.domElement.addEventListener("pointermove", onPointerMove);
@@ -284,8 +342,6 @@ export function GlobeScene({
     let frameId = 0;
     const render = () => {
       frameId = requestAnimationFrame(render);
-      cloudLayer.rotation.y += 0.00028;
-      pulse.scale.setScalar(1 + Math.sin(performance.now() * 0.004) * 0.18);
       marker.scale.setScalar(isHoveringStation ? 1.28 : 1);
       controls.target.set(0, 0, 0);
       syncSelectionState();
@@ -322,16 +378,16 @@ export function GlobeScene({
       mount.removeChild(renderer.domElement);
       renderer.dispose();
       delete window.__globeDebug;
+      sceneRef.current = null;
       earth.geometry.dispose();
       cloudLayer.geometry.dispose();
       atmosphere.geometry.dispose();
       marker.geometry.dispose();
       pulse.geometry.dispose();
     };
-  }, [groundStation, onGroundStationHover, onGroundStationSelect]);
+  }, [clock, groundStation, onGroundStationHover, onGroundStationSelect]);
 
   useEffect(() => {
-    selectedStationRef.current = selectedStation;
     selectionTransitionRef.current = {
       previous: selectionTransitionRef.current.current,
       current: selectedStation,
@@ -339,6 +395,19 @@ export function GlobeScene({
   }, [selectedStation]);
 
   return <div ref={mountRef} className="globe-scene" aria-label="3D Earth scene" />;
+}
+
+function applyFrameToScene(
+  handles: SceneHandles | null,
+  clock: SimulationClock,
+  frame: SimulationFrame,
+) {
+  if (!handles) return;
+
+  handles.earthGroup.rotation.y = getEarthRotationRad(frame.currentUnixMs);
+  handles.cloudLayer.rotation.y = getCloudRotationRad(frame.currentUnixMs);
+  handles.pulse.scale.setScalar(getPulseScale(clock, frame.currentUnixMs));
+  handles.marker.getWorldPosition(handles.stationWorldPosition);
 }
 
 function createStarField() {
