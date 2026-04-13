@@ -68,9 +68,6 @@ type GlobeSceneProps = {
   physicalConstants: PhysicalConstants;
   selectedStation: GroundStation | null;
   selectedSatellite: Satellite | null;
-  onGroundStationHover: (
-    hover: { station: GroundStation; x: number; y: number } | null,
-  ) => void;
   onGroundStationSelect: (station: GroundStation) => void;
   onSatelliteSelect: (satellite: Satellite) => void;
 };
@@ -113,7 +110,6 @@ export function GlobeScene({
   physicalConstants,
   selectedStation,
   selectedSatellite,
-  onGroundStationHover,
   onGroundStationSelect,
   onSatelliteSelect,
 }: GlobeSceneProps) {
@@ -544,16 +540,6 @@ export function GlobeScene({
       isHoveringSatellite = intersectsSatelliteMarker(event);
       renderer.domElement.style.cursor =
         isHoveringStation || isHoveringSatellite ? "pointer" : "grab";
-
-      if (isHoveringStation) {
-        onGroundStationHover({
-          station: groundStation,
-          x: event.clientX,
-          y: event.clientY,
-        });
-      } else {
-        onGroundStationHover(null);
-      }
     };
 
     const onPointerLeave = () => {
@@ -564,7 +550,6 @@ export function GlobeScene({
       isHoveringStation = false;
       isHoveringSatellite = false;
       renderer.domElement.style.cursor = "grab";
-      onGroundStationHover(null);
     };
 
     const onPointerDown = (event: PointerEvent) => {
@@ -708,7 +693,6 @@ export function GlobeScene({
     frames,
     groundStation,
     satellite,
-    onGroundStationHover,
     onGroundStationSelect,
     onSatelliteSelect,
     physicalConstants,
