@@ -4,7 +4,7 @@ export type SimulationState = {
   mcsTable: readonly McsTableEntry[];
   physicalConstants: PhysicalConstants;
   hardwareNominalConstants: HardwareNominalConstants;
-  frames: readonly IndependentSimulationFrame[];
+  frames: readonly SimulationFrame[];
 };
 
 export type SimulationConfig = {
@@ -123,19 +123,9 @@ export type HardwareNominalConstants = {
   };
 };
 
-export type IndependentSimulationFrame = {
+export type SimulationFrame = {
   index: number;
-  tUnixMs: number;
-  clock: {
-    startUnixMs: number;
-    endUnixMs: number;
-    stepSeconds: number;
-    currentUnixMs: number;
-  };
-  config: SimulationConfig;
-  mcsTable: readonly McsTableEntry[];
-  physicalConstants: PhysicalConstants;
-  hardwareNominalConstants: HardwareNominalConstants;
+  currentUnixMs: number;
 };
 
 export const PHYSICAL_CONSTANTS: PhysicalConstants = {
@@ -257,6 +247,7 @@ export const DEFAULT_SIMULATION_CONFIG: SimulationConfig = {
     revolutionNumberAtEpoch: 35400,
     line2Checksum: 5,
   },
+  // TODO: Update Bengaluru ground station to Texas ground station
   groundStation: {
     name: "Bengaluru Ground Station",
     latDeg: 12.9716,
@@ -298,13 +289,7 @@ export const DEFAULT_SIMULATION_CLOCK: SimulationClock = {
   stepSeconds: 1,
 };
 
-export function buildIndependentSimulationFrames(
-  config: SimulationConfig,
-  clock: SimulationClock,
-  mcsTable: readonly McsTableEntry[] = MCS_TABLE,
-  physicalConstants: PhysicalConstants = PHYSICAL_CONSTANTS,
-  hardwareNominalConstants: HardwareNominalConstants = HARDWARE_NOMINAL_CONSTANTS,
-): IndependentSimulationFrame[] {
+export function buildSimulationFrames(clock: SimulationClock): SimulationFrame[] {
   if (clock.stepSeconds <= 0) {
     throw new Error("Simulation clock stepSeconds must be greater than zero.");
   }
@@ -314,7 +299,7 @@ export function buildIndependentSimulationFrames(
   }
 
   const stepMs = clock.stepSeconds * 1_000;
-  const frames: IndependentSimulationFrame[] = [];
+  const frames: SimulationFrame[] = [];
 
   for (
     let currentUnixMs = clock.startUnixMs, index = 0;
@@ -323,17 +308,7 @@ export function buildIndependentSimulationFrames(
   ) {
     frames.push({
       index,
-      tUnixMs: currentUnixMs,
-      clock: {
-        startUnixMs: clock.startUnixMs,
-        endUnixMs: clock.endUnixMs,
-        stepSeconds: clock.stepSeconds,
-        currentUnixMs,
-      },
-      config,
-      mcsTable,
-      physicalConstants,
-      hardwareNominalConstants,
+      currentUnixMs,
     });
   }
 
@@ -346,10 +321,7 @@ export const DEFAULT_SIMULATION_STATE: SimulationState = {
   mcsTable: MCS_TABLE,
   physicalConstants: PHYSICAL_CONSTANTS,
   hardwareNominalConstants: HARDWARE_NOMINAL_CONSTANTS,
-  frames: buildIndependentSimulationFrames(
-    DEFAULT_SIMULATION_CONFIG,
-    DEFAULT_SIMULATION_CLOCK,
-  ),
+  frames: buildSimulationFrames(DEFAULT_SIMULATION_CLOCK),
 };
 
 function tleEpochToUnixMs(epoch: TleElements["epoch"]): number {
