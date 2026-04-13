@@ -9,7 +9,6 @@ import {
 import { DEFAULT_SIMULATION_STATE, type GroundStationConfig, type TleElements } from "../state";
 import { GlobeScene } from "./components/GlobeScene";
 import { GroundStationCard } from "./components/GroundStationCard";
-import { GroundStationHover } from "./components/GroundStationHover";
 import { SatelliteCard } from "./components/SatelliteCard";
 import { SimulationTimeline } from "./components/SimulationTimeline";
 import type { GroundStation, Satellite } from "./types";
@@ -42,11 +41,6 @@ export function App() {
 
   const [selectedStation, setSelectedStation] = useState<GroundStation | null>(null);
   const [selectedSatellite, setSelectedSatellite] = useState<Satellite | null>(null);
-  const [hover, setHover] = useState<{
-    station: GroundStation;
-    x: number;
-    y: number;
-  } | null>(null);
   const [pendingFrameIndex, setPendingFrameIndex] = useState(0);
   const [visualFrameIndex, setVisualFrameIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -205,12 +199,9 @@ export function App() {
         physicalConstants={simulationState.physicalConstants}
         selectedStation={selectedStation}
         selectedSatellite={selectedSatellite}
-        onGroundStationHover={setHover}
         onGroundStationSelect={handleGroundStationSelect}
         onSatelliteSelect={handleSatelliteSelect}
       />
-
-      {hover ? <GroundStationHover hover={hover} /> : null}
 
       {selectedStation ? (
         <GroundStationCard
@@ -228,6 +219,7 @@ export function App() {
           currentUnixMs={visualFrame.currentUnixMs}
           frameState={visualFrame.satellite}
           hardwareState={visualFrame.hardware}
+          sunState={visualFrame.sun}
           onClose={() => setSelectedSatellite(null)}
         />
       ) : null}
