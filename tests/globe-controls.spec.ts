@@ -8,9 +8,12 @@ declare global {
       getStationScreenPosition: () => { x: number; y: number };
       getEarthRotationY: () => number;
       getDisplayedUnixMs: () => number;
+      getSatelliteWorldPosition: () => Vec3;
       isAnimating: () => boolean;
     };
     __simulationDebug?: {
+      beginScrub: () => void;
+      endScrub: () => void;
       getPendingFrameIndex: () => number;
       getVisualFrameIndex: () => number;
       getCurrentUnixMs: () => number;
@@ -33,6 +36,9 @@ test("timeline scrub throttles renders and commits the final frame", async ({ pa
 
   const initial = await sceneState(page);
   const slider = page.getByRole("slider", { name: "Simulation timeline" });
+  const maxFrameIndex = await slider.evaluate((element) =>
+    Number((element as HTMLInputElement).max),
+  );
   await page.evaluate(() => {
     window.__simulationDebug!.beginScrub();
   });
@@ -64,12 +70,13 @@ test("timeline scrub throttles renders and commits the final frame", async ({ pa
 
   await expect
     .poll(() => page.evaluate(() => window.__simulationDebug!.getVisualFrameIndex()))
-    .toBe(179);
+    .toBe(maxFrameIndex);
 
   const final = await sceneState(page);
   expect(final.unixMs).not.toBe(initial.unixMs);
   expect(final.earthRotationY).not.toBeCloseTo(initial.earthRotationY, 6);
   expect(distance2d(initial.stationScreenPosition, final.stationScreenPosition)).toBeGreaterThan(1);
+  expect(distance(initial.satelliteWorldPosition, final.satelliteWorldPosition)).toBeGreaterThan(0.05);
 });
 
 test("globe remains draggable before selection and after deselection", async ({ page }) => {
@@ -121,6 +128,7 @@ test("returning to the same timeline frame restores the same derived scene state
   expect(second.unixMs).toBe(first.unixMs);
   expect(second.earthRotationY).toBeCloseTo(first.earthRotationY, 8);
   expect(distance2d(first.stationScreenPosition, second.stationScreenPosition)).toBeLessThan(1);
+  expect(distance(first.satelliteWorldPosition, second.satelliteWorldPosition)).toBeLessThan(1e-6);
 });
 
 async function openScene(page: Page) {
@@ -169,6 +177,7 @@ async function sceneState(page: Page) {
     unixMs: window.__globeDebug!.getDisplayedUnixMs(),
     earthRotationY: window.__globeDebug!.getEarthRotationY(),
     stationScreenPosition: window.__globeDebug!.getStationScreenPosition(),
+    satelliteWorldPosition: window.__globeDebug!.getSatelliteWorldPosition(),
   }));
 }
 

@@ -11,14 +11,15 @@
     "test:e2e:open": "PLAYWRIGHT_NO_WEBSERVER=1 playwright test"
   },
   "dependencies": {
+    "@radix-ui/react-accordion": "^1.2.12",
     "@vitejs/plugin-react": "^5.1.1",
-    "vite": "^7.3.0",
-    "typescript": "^5.9.3",
+    "lucide-react": "^0.562.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
+    "satellite.js": "^7.0.0",
     "three": "^0.182.0",
-    "lucide-react": "^0.562.0",
-    "@radix-ui/react-accordion": "^1.2.12"
+    "typescript": "^5.9.3",
+    "vite": "^7.3.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",

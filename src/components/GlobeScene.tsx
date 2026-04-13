@@ -8,6 +8,8 @@ import {
   DirectionalLight,
   Float32BufferAttribute,
   Group,
+  Line,
+  LineBasicMaterial,
   Mesh,
   MeshBasicMaterial,
   MeshPhongMaterial,
@@ -21,12 +23,18 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { SimulationClock, SimulationFrame } from "../../state";
+import type {
+  PhysicalConstants,
+  SimulationClock,
+  SimulationFrame,
+} from "../../state";
 import {
   getCloudRotationRad,
   getEarthRotationRad,
-  getPulseScale,
   getGroundStationLocalVector,
+  getPulseScale,
+  getSatelliteInertialLocalVector,
+  getSatellitePathLocalPositions,
 } from "../lib/simulation-visuals";
 import type { GroundStation } from "../types";
 
@@ -39,6 +47,7 @@ declare global {
       getStationScreenPosition: () => { x: number; y: number };
       getEarthRotationY: () => number;
       getDisplayedUnixMs: () => number;
+      getSatelliteWorldPosition: () => { x: number; y: number; z: number };
       isAnimating: () => boolean;
     };
     __globeTestAnimationMs?: number;
@@ -48,7 +57,9 @@ declare global {
 type GlobeSceneProps = {
   clock: SimulationClock;
   frame: SimulationFrame;
+  frames: readonly SimulationFrame[];
   groundStation: GroundStation;
+  physicalConstants: PhysicalConstants;
   selectedStation: GroundStation | null;
   onGroundStationHover: (
     hover: { station: GroundStation; x: number; y: number } | null,
@@ -61,10 +72,14 @@ type SceneHandles = {
   controls: OrbitControls;
   renderer: WebGLRenderer;
   earthGroup: Group;
+  inertialGroup: Group;
   cloudLayer: Mesh;
-  marker: Mesh;
-  pulse: Mesh;
+  stationMarker: Mesh;
+  stationPulse: Mesh;
+  satelliteMarker: Mesh;
+  satelliteGlow: Mesh;
   stationWorldPosition: Vector3;
+  satelliteWorldPosition: Vector3;
 };
 
 const EARTH_RADIUS = 2.25;
@@ -73,11 +88,12 @@ const DEFAULT_CAMERA_DISTANCE = Math.hypot(0, 1.35, 6.4);
 const DEFAULT_ROTATE_SPEED = 0.55;
 const ZOOM_ANIMATION_MS = 650;
 
-// TODO: Make the earth dark mode. Looks better
 export function GlobeScene({
   clock,
   frame,
+  frames,
   groundStation,
+  physicalConstants,
   selectedStation,
   onGroundStationHover,
   onGroundStationSelect,
@@ -95,8 +111,8 @@ export function GlobeScene({
 
   useEffect(() => {
     currentFrameRef.current = frame;
-    applyFrameToScene(sceneRef.current, clock, frame);
-  }, [clock, frame]);
+    applyFrameToScene(sceneRef.current, clock, physicalConstants, frame);
+  }, [clock, frame, physicalConstants]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -137,6 +153,8 @@ export function GlobeScene({
 
     const earthGroup = new Group();
     scene.add(earthGroup);
+    const inertialGroup = new Group();
+    scene.add(inertialGroup);
 
     const earth = new Mesh(
       new SphereGeometry(EARTH_RADIUS, 128, 128),
@@ -179,20 +197,19 @@ export function GlobeScene({
       groundStation,
       EARTH_RADIUS * 1.018,
     );
-
-    const marker = new Mesh(
+    const stationMarker = new Mesh(
       new SphereGeometry(0.055, 32, 32),
       new MeshBasicMaterial({ color: "#38bdf8" }),
     );
-    marker.position.set(
+    stationMarker.position.set(
       stationLocalPosition.x,
       stationLocalPosition.y,
       stationLocalPosition.z,
     );
-    marker.userData.stationId = groundStation.id;
-    earthGroup.add(marker);
+    stationMarker.userData.stationId = groundStation.id;
+    earthGroup.add(stationMarker);
 
-    const pulse = new Mesh(
+    const stationPulse = new Mesh(
       new SphereGeometry(0.09, 32, 32),
       new MeshBasicMaterial({
         color: "#60a5fa",
@@ -200,27 +217,67 @@ export function GlobeScene({
         opacity: 0.26,
       }),
     );
-    pulse.position.copy(marker.position);
-    earthGroup.add(pulse);
+    stationPulse.position.copy(stationMarker.position);
+    earthGroup.add(stationPulse);
+
+    const satellitePath = new Line(
+      new BufferGeometry(),
+      new LineBasicMaterial({
+        color: "#f59e0b",
+        transparent: true,
+        opacity: 0.5,
+      }),
+    );
+    satellitePath.geometry.setAttribute(
+      "position",
+      new Float32BufferAttribute(
+        getSatellitePathLocalPositions(frames, physicalConstants, EARTH_RADIUS),
+        3,
+      ),
+    );
+    inertialGroup.add(satellitePath);
+
+    const satelliteMarker = new Mesh(
+      new SphereGeometry(0.065, 32, 32),
+      new MeshBasicMaterial({ color: "#f59e0b" }),
+    );
+    inertialGroup.add(satelliteMarker);
+
+    const satelliteGlow = new Mesh(
+      new SphereGeometry(0.12, 32, 32),
+      new MeshBasicMaterial({
+        color: "#fde68a",
+        transparent: true,
+        opacity: 0.2,
+      }),
+    );
+    inertialGroup.add(satelliteGlow);
 
     scene.add(createStarField());
 
     const stationWorldPosition = new Vector3();
-    marker.getWorldPosition(stationWorldPosition);
-    camera.position.copy(stationWorldPosition.clone().normalize().multiplyScalar(DEFAULT_CAMERA_DISTANCE));
+    const satelliteWorldPosition = new Vector3();
+    stationMarker.getWorldPosition(stationWorldPosition);
+    camera.position.copy(
+      stationWorldPosition.clone().normalize().multiplyScalar(DEFAULT_CAMERA_DISTANCE),
+    );
 
     const handles: SceneHandles = {
       camera,
       controls,
       renderer,
       earthGroup,
+      inertialGroup,
       cloudLayer,
-      marker,
-      pulse,
+      stationMarker,
+      stationPulse,
+      satelliteMarker,
+      satelliteGlow,
       stationWorldPosition,
+      satelliteWorldPosition,
     };
     sceneRef.current = handles;
-    applyFrameToScene(handles, clock, currentFrameRef.current);
+    applyFrameToScene(handles, clock, physicalConstants, currentFrameRef.current);
 
     let isHoveringStation = false;
     let pointerDownPosition: { x: number; y: number } | null = null;
@@ -249,7 +306,7 @@ export function GlobeScene({
     };
 
     const getProjectedStationScreenPosition = () => {
-      marker.getWorldPosition(stationWorldPosition);
+      stationMarker.getWorldPosition(stationWorldPosition);
       const rect = renderer.domElement.getBoundingClientRect();
       const projected = stationWorldPosition.clone().project(camera);
       return {
@@ -277,17 +334,25 @@ export function GlobeScene({
       },
       getEarthRotationY: () => earthGroup.rotation.y,
       getDisplayedUnixMs: () => currentFrameRef.current.currentUnixMs,
+      getSatelliteWorldPosition: () => {
+        satelliteMarker.getWorldPosition(satelliteWorldPosition);
+        return {
+          x: satelliteWorldPosition.x,
+          y: satelliteWorldPosition.y,
+          z: satelliteWorldPosition.z,
+        };
+      },
       isAnimating: () => zoomAnimation !== null,
     };
 
-    const intersectsMarker = (event: PointerEvent) => {
+    const intersectsStationMarker = (event: PointerEvent) => {
       const { projected, x, y } = getProjectedStationScreenPosition();
       const distancePx = Math.hypot(event.clientX - x, event.clientY - y);
       return projected.z < 1 && distancePx < 22;
     };
 
     const onPointerMove = (event: PointerEvent) => {
-      isHoveringStation = intersectsMarker(event);
+      isHoveringStation = intersectsStationMarker(event);
       renderer.domElement.style.cursor = isHoveringStation ? "pointer" : "grab";
 
       if (isHoveringStation) {
@@ -320,10 +385,10 @@ export function GlobeScene({
       );
       pointerDownPosition = null;
 
-      if (movedPx > 6 || !intersectsMarker(event)) return;
+      if (movedPx > 6 || !intersectsStationMarker(event)) return;
 
       onGroundStationSelect(groundStation);
-      marker.getWorldPosition(stationWorldPosition);
+      stationMarker.getWorldPosition(stationWorldPosition);
       animateCameraTo(stationWorldPosition.clone().normalize().multiplyScalar(4.15));
     };
 
@@ -342,7 +407,7 @@ export function GlobeScene({
     let frameId = 0;
     const render = () => {
       frameId = requestAnimationFrame(render);
-      marker.scale.setScalar(isHoveringStation ? 1.28 : 1);
+      stationMarker.scale.setScalar(isHoveringStation ? 1.28 : 1);
       controls.target.set(0, 0, 0);
       syncSelectionState();
 
@@ -382,10 +447,21 @@ export function GlobeScene({
       earth.geometry.dispose();
       cloudLayer.geometry.dispose();
       atmosphere.geometry.dispose();
-      marker.geometry.dispose();
-      pulse.geometry.dispose();
+      stationMarker.geometry.dispose();
+      stationPulse.geometry.dispose();
+      satelliteMarker.geometry.dispose();
+      satelliteGlow.geometry.dispose();
+      satellitePath.geometry.dispose();
+      (satellitePath.material as LineBasicMaterial).dispose();
     };
-  }, [clock, groundStation, onGroundStationHover, onGroundStationSelect]);
+  }, [
+    clock,
+    frames,
+    groundStation,
+    onGroundStationHover,
+    onGroundStationSelect,
+    physicalConstants,
+  ]);
 
   useEffect(() => {
     selectionTransitionRef.current = {
@@ -400,14 +476,30 @@ export function GlobeScene({
 function applyFrameToScene(
   handles: SceneHandles | null,
   clock: SimulationClock,
+  physicalConstants: PhysicalConstants,
   frame: SimulationFrame,
 ) {
   if (!handles) return;
 
+  const satelliteInertialLocalPosition = getSatelliteInertialLocalVector(
+    frame,
+    physicalConstants,
+    EARTH_RADIUS,
+  );
+
   handles.earthGroup.rotation.y = getEarthRotationRad(frame.currentUnixMs);
   handles.cloudLayer.rotation.y = getCloudRotationRad(frame.currentUnixMs);
-  handles.pulse.scale.setScalar(getPulseScale(clock, frame.currentUnixMs));
-  handles.marker.getWorldPosition(handles.stationWorldPosition);
+  handles.stationPulse.scale.setScalar(getPulseScale(clock, frame.currentUnixMs));
+  handles.inertialGroup.rotation.y = 0;
+  handles.satelliteMarker.position.set(
+    satelliteInertialLocalPosition.x,
+    satelliteInertialLocalPosition.y,
+    satelliteInertialLocalPosition.z,
+  );
+  handles.satelliteGlow.position.copy(handles.satelliteMarker.position);
+  handles.satelliteGlow.scale.setScalar(1 + getPulseScale(clock, frame.currentUnixMs) * 0.16);
+  handles.stationMarker.getWorldPosition(handles.stationWorldPosition);
+  handles.satelliteMarker.getWorldPosition(handles.satelliteWorldPosition);
 }
 
 function createStarField() {

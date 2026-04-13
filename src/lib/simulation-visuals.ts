@@ -1,4 +1,10 @@
-import type { GroundStationConfig, SimulationClock } from "../../state";
+import type {
+  Cartesian3,
+  GroundStationConfig,
+  PhysicalConstants,
+  SimulationClock,
+  SimulationFrame,
+} from "../../state";
 
 type Vec3Like = {
   x: number;
@@ -60,6 +66,41 @@ export function getGroundStationWorldVector(
   );
 }
 
+export function getSatelliteLocalVector(
+  frame: SimulationFrame,
+  physicalConstants: PhysicalConstants,
+  radius = 1,
+): Vec3Like {
+  return scaleMetersVectorToScene(
+    frame.satellite.positionEcefM,
+    physicalConstants.earthModel.meanRadiusM,
+    radius,
+  );
+}
+
+export function getSatelliteInertialLocalVector(
+  frame: SimulationFrame,
+  physicalConstants: PhysicalConstants,
+  radius = 1,
+): Vec3Like {
+  return scaleMetersVectorToScene(
+    frame.satellite.positionEciM,
+    physicalConstants.earthModel.meanRadiusM,
+    radius,
+  );
+}
+
+export function getSatellitePathLocalPositions(
+  frames: readonly SimulationFrame[],
+  physicalConstants: PhysicalConstants,
+  radius = 1,
+) {
+  return frames.flatMap((frame) => {
+    const position = getSatelliteInertialLocalVector(frame, physicalConstants, radius);
+    return [position.x, position.y, position.z];
+  });
+}
+
 function rotateAroundY(vector: Vec3Like, angleRad: number): Vec3Like {
   const cos = Math.cos(angleRad);
   const sin = Math.sin(angleRad);
@@ -73,4 +114,18 @@ function rotateAroundY(vector: Vec3Like, angleRad: number): Vec3Like {
 
 function normalizeRadians(angleRad: number) {
   return ((angleRad % TWO_PI) + TWO_PI) % TWO_PI;
+}
+
+function scaleMetersVectorToScene(
+  vectorMeters: Cartesian3,
+  earthMeanRadiusM: number,
+  radius: number,
+): Vec3Like {
+  const scale = radius / earthMeanRadiusM;
+
+  return {
+    x: vectorMeters.x * scale,
+    y: vectorMeters.y * scale,
+    z: vectorMeters.z * scale,
+  };
 }
