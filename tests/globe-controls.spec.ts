@@ -90,11 +90,11 @@ test("globe remains draggable before selection and after deselection", async ({ 
   const afterUnselectedDrag = await cameraPosition(page);
 
   expect(distance(initial, afterUnselectedDrag)).toBeGreaterThan(0.4);
-  await expect(page.getByText("Bengaluru Ground Station")).toHaveCount(0);
+  await expect(page.getByText("Starbase Ground Station")).toHaveCount(0);
 
   const station = await page.evaluate(() => window.__globeDebug!.getStationScreenPosition());
   await page.mouse.click(station.x, station.y);
-  await expect.poll(() => page.getByText("Bengaluru Ground Station").count()).toBeGreaterThan(0);
+  await expect.poll(() => page.getByText("Starbase Ground Station").count()).toBeGreaterThan(0);
   await waitForCameraIdle(page);
   expect(await cameraDistance(page)).toBeLessThan(4.5);
   await expect(page.getByRole("button", { name: "Location" })).toBeVisible();
@@ -108,7 +108,7 @@ test("globe remains draggable before selection and after deselection", async ({ 
 
   const selectedDirection = normalize(await cameraPosition(page));
   await page.getByLabel("Close").click();
-  await expect(page.getByText("Bengaluru Ground Station")).toHaveCount(0);
+  await expect(page.getByText("Starbase Ground Station")).toHaveCount(0);
   await waitForCameraIdle(page);
   expect(await cameraDistance(page)).toBeGreaterThan(6.3);
   expect(dot(selectedDirection, normalize(await cameraPosition(page)))).toBeGreaterThan(0.99);
@@ -118,7 +118,7 @@ test("globe remains draggable before selection and after deselection", async ({ 
   const afterDeselectedDrag = await cameraPosition(page);
 
   expect(distance(afterReset, afterDeselectedDrag)).toBeGreaterThan(0.4);
-  await expect(page.getByText("Bengaluru Ground Station")).toHaveCount(0);
+  await expect(page.getByText("Starbase Ground Station")).toHaveCount(0);
 });
 
 test("returning to the same timeline frame restores the same derived scene state", async ({
