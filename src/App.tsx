@@ -7,6 +7,7 @@ import { GlobeScene } from "./components/GlobeScene";
 import { GroundStationCard } from "./components/GroundStationCard";
 import { GroundStationHover } from "./components/GroundStationHover";
 import { SimulationTimeline } from "./components/SimulationTimeline";
+import { deriveGroundStationState } from "./lib/ground-station";
 import type { GroundStation } from "./types";
 
 declare global {
@@ -54,6 +55,15 @@ export function App() {
   });
 
   const visualFrame = simulationState.frames[visualFrameIndex];
+  const groundStationDerivedState = useMemo(
+    () =>
+      deriveGroundStationState(
+        simulationState.config.groundStation,
+        simulationState.physicalConstants,
+        visualFrame,
+      ),
+    [simulationState.config.groundStation, simulationState.physicalConstants, visualFrame],
+  );
   pendingFrameIndexRef.current = pendingFrameIndex;
 
   const beginScrub = () => {
@@ -132,6 +142,8 @@ export function App() {
       {selectedStation ? (
         <GroundStationCard
           station={selectedStation}
+          currentUnixMs={visualFrame.currentUnixMs}
+          derivedState={groundStationDerivedState}
           onClose={() => setSelectedStation(null)}
         />
       ) : null}

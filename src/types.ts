@@ -1,8 +1,5 @@
-export type GroundStation = {
+import type { GroundStationConfig } from "../state";
+
+export type GroundStation = GroundStationConfig & {
   id: string;
-  name: string;
-  latDeg: number;
-  lonDeg: number;
-  altitudeM: number;
-  minElevationDeg: number;
 };
