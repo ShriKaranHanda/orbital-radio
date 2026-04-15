@@ -14,6 +14,7 @@ import {
   MeshBasicMaterial,
   MeshPhongMaterial,
   PerspectiveCamera,
+  MOUSE,
   Points,
   PointsMaterial,
   Scene,
@@ -94,6 +95,7 @@ const DEFAULT_CAMERA_DISTANCE = Math.hypot(0, 1.35, 6.4);
 const DEFAULT_ROTATE_SPEED = 0.55;
 const ZOOM_ANIMATION_MS = 650;
 const GROUND_STATION_ELEVATION_ARC_RADIUS = 0.15;
+const DEFAULT_ROTATION_CENTER = new Vector3(0, 0, 0);
 
 export function GlobeScene({
   clock,
@@ -108,6 +110,13 @@ export function GlobeScene({
   const mountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<SceneHandles | null>(null);
   const currentFrameRef = useRef(frame);
+  const resetRotationCenter = () => {
+    const handles = sceneRef.current;
+    if (!handles) return;
+
+    handles.controls.target.copy(DEFAULT_ROTATION_CENTER);
+    handles.controls.update();
+  };
   const selectionTransitionRef = useRef<{
     previous: GroundStation | null;
     current: GroundStation | null;
@@ -145,13 +154,18 @@ export function GlobeScene({
     mount.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
+    controls.mouseButtons = {
+      LEFT: MOUSE.ROTATE,
+      MIDDLE: MOUSE.PAN,
+      RIGHT: MOUSE.ROTATE,
+    };
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
-    controls.enablePan = false;
+    controls.enablePan = true;
     controls.minDistance = 3.1;
     controls.maxDistance = 9;
     controls.rotateSpeed = DEFAULT_ROTATE_SPEED;
-    controls.target.set(0, 0, 0);
+    controls.target.copy(DEFAULT_ROTATION_CENTER);
 
     scene.add(new AmbientLight("#7aa3d8", 1.1));
     const sun = new DirectionalLight("#ffffff", 3.3);
@@ -355,6 +369,9 @@ export function GlobeScene({
     );
 
     let isHoveringStation = false;
+    let isShiftPanning = false;
+    let shiftPanPointerId: number | null = null;
+    let shiftPanPosition: { x: number; y: number } | null = null;
     let pointerDownPosition: { x: number; y: number } | null = null;
     let zoomAnimation: {
       startedAt: number;
@@ -426,7 +443,58 @@ export function GlobeScene({
       return projected.z < 1 && distancePx < 22;
     };
 
+    const panRotationCenter = (event: PointerEvent) => {
+      if (!isShiftPanning) return;
+      if (shiftPanPointerId !== event.pointerId) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+
+      if (shiftPanPosition === null) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      const distance = camera.position.distanceTo(controls.target);
+
+      if (distance <= 0.0001) {
+        shiftPanPosition = { x: event.clientX, y: event.clientY };
+        return;
+      }
+
+      const currentDeltaX = event.clientX - shiftPanPosition.x;
+      const currentDeltaY = event.clientY - shiftPanPosition.y;
+      shiftPanPosition = { x: event.clientX, y: event.clientY };
+
+      if (currentDeltaX === 0 && currentDeltaY === 0) return;
+
+      const direction = new Vector3();
+      const worldPanRight = new Vector3();
+      const worldPanUp = new Vector3();
+      camera.getWorldDirection(direction);
+      worldPanRight.crossVectors(direction, camera.up).normalize();
+      worldPanUp.crossVectors(worldPanRight, direction).normalize();
+
+      const panScale =
+        (2 * distance * Math.tan((camera.fov * Math.PI) / 360)) / rect.height;
+      const panDelta = new Vector3(
+        -currentDeltaX * panScale,
+        currentDeltaY * panScale,
+        0,
+      );
+      const panDeltaWorld = worldPanRight
+        .clone()
+        .multiplyScalar(panDelta.x)
+        .add(worldPanUp.clone().multiplyScalar(panDelta.y));
+
+      controls.target.add(panDeltaWorld);
+      camera.position.add(panDeltaWorld);
+      controls.update();
+    };
+
     const onPointerMove = (event: PointerEvent) => {
+      if (isShiftPanning) {
+        panRotationCenter(event);
+        return;
+      }
+
       isHoveringStation = intersectsStationMarker(event);
       renderer.domElement.style.cursor = isHoveringStation ? "pointer" : "grab";
 
@@ -442,16 +510,45 @@ export function GlobeScene({
     };
 
     const onPointerLeave = () => {
+      isShiftPanning = false;
+      shiftPanPointerId = null;
+      shiftPanPosition = null;
+      pointerDownPosition = null;
       isHoveringStation = false;
       renderer.domElement.style.cursor = "grab";
       onGroundStationHover(null);
     };
 
     const onPointerDown = (event: PointerEvent) => {
+      if (event.button === 0 && event.shiftKey) {
+        isShiftPanning = true;
+        shiftPanPointerId = event.pointerId;
+        shiftPanPosition = { x: event.clientX, y: event.clientY };
+        renderer.domElement.style.cursor = "grabbing";
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+
+      if (event.button !== 0) {
+        return;
+      }
+
       pointerDownPosition = { x: event.clientX, y: event.clientY };
     };
 
     const onPointerUp = (event: PointerEvent) => {
+      if (isShiftPanning && shiftPanPointerId === event.pointerId) {
+        isShiftPanning = false;
+        shiftPanPointerId = null;
+        shiftPanPosition = null;
+        pointerDownPosition = null;
+        renderer.domElement.style.cursor = "grab";
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+
       if (!pointerDownPosition) return;
 
       const movedPx = Math.hypot(
@@ -471,6 +568,9 @@ export function GlobeScene({
     renderer.domElement.addEventListener("pointerleave", onPointerLeave);
     renderer.domElement.addEventListener("pointerdown", onPointerDown);
     renderer.domElement.addEventListener("pointerup", onPointerUp);
+    renderer.domElement.addEventListener("pointermove", panRotationCenter, true);
+    renderer.domElement.addEventListener("pointerdown", onPointerDown, true);
+    renderer.domElement.addEventListener("pointerup", onPointerUp, true);
 
     const resizeObserver = new ResizeObserver(() => {
       camera.aspect = mount.clientWidth / mount.clientHeight;
@@ -483,7 +583,6 @@ export function GlobeScene({
     const render = () => {
       frameId = requestAnimationFrame(render);
       stationMarker.scale.setScalar(isHoveringStation ? 1.28 : 1);
-      controls.target.set(0, 0, 0);
       syncSelectionState();
 
       if (zoomAnimation) {
@@ -503,6 +602,11 @@ export function GlobeScene({
         (camera.position.length() - controls.minDistance) /
         (controls.maxDistance - controls.minDistance);
       controls.rotateSpeed = DEFAULT_ROTATE_SPEED * (0.3 + Math.max(0, normalizedDistance) * 0.7);
+      if (isShiftPanning) {
+        renderer.domElement.style.cursor = "grabbing";
+      } else {
+        renderer.domElement.style.cursor = isHoveringStation ? "pointer" : "grab";
+      }
       controls.update();
       renderer.render(scene, camera);
     };
@@ -515,6 +619,9 @@ export function GlobeScene({
       renderer.domElement.removeEventListener("pointerleave", onPointerLeave);
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       renderer.domElement.removeEventListener("pointerup", onPointerUp);
+      renderer.domElement.removeEventListener("pointermove", panRotationCenter, true);
+      renderer.domElement.removeEventListener("pointerdown", onPointerDown, true);
+      renderer.domElement.removeEventListener("pointerup", onPointerUp, true);
       mount.removeChild(renderer.domElement);
       renderer.dispose();
       delete window.__globeDebug;
@@ -549,7 +656,18 @@ export function GlobeScene({
     };
   }, [selectedStation]);
 
-  return <div ref={mountRef} className="globe-scene" aria-label="3D Earth scene" />;
+  return (
+    <div ref={mountRef} className="globe-scene" aria-label="3D Earth scene">
+      <button
+        type="button"
+        className="scene-control-button"
+        onClick={resetRotationCenter}
+        aria-label="Reset rotation center"
+      >
+        Reset center
+      </button>
+    </div>
+  );
 }
 
 function applyFrameToScene(
