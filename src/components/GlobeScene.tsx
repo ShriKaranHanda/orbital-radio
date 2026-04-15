@@ -93,6 +93,7 @@ const EARTH_TEXTURE_URL = "/textures/earth-blue-marble-topography.jpg";
 const DEFAULT_CAMERA_DISTANCE = Math.hypot(0, 1.35, 6.4);
 const DEFAULT_ROTATE_SPEED = 0.55;
 const ZOOM_ANIMATION_MS = 650;
+const GROUND_STATION_ELEVATION_ARC_RADIUS = 0.15;
 
 export function GlobeScene({
   clock,
@@ -117,8 +118,8 @@ export function GlobeScene({
 
   useEffect(() => {
     currentFrameRef.current = frame;
-    applyFrameToScene(sceneRef.current, clock, physicalConstants, frame);
-  }, [clock, frame, physicalConstants]);
+    applyFrameToScene(sceneRef.current, clock, physicalConstants, groundStation, frame);
+  }, [clock, frame, groundStation, physicalConstants]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -226,25 +227,36 @@ export function GlobeScene({
     stationPulse.position.copy(stationMarker.position);
     earthGroup.add(stationPulse);
 
-    const antennaDirection = getGroundStationAntennaDirectionLocalVector(groundStation);
+    const antennaDirection = getGroundStationAntennaDirectionLocalVector(
+      groundStation,
+      {
+        azimuthDeg: frame.groundStation.trackedAzimuthDeg,
+        elevationDeg: frame.groundStation.trackedElevationDeg,
+      },
+    );
     const stationPosition = new Vector3(
       stationLocalPosition.x,
       stationLocalPosition.y,
       stationLocalPosition.z,
     );
+    const initialBoresightLength = getBoresightLength(
+      EARTH_RADIUS,
+      frame.groundStation.slantRangeM,
+      physicalConstants.earthModel.meanRadiusM,
+    );
     const antennaEnd = stationPosition
       .clone()
       .add(
         new Vector3(antennaDirection.x, antennaDirection.y, antennaDirection.z).multiplyScalar(
-          0.62,
+          initialBoresightLength,
         ),
       );
     const antennaRay = new Line(
       new BufferGeometry().setFromPoints([stationPosition, antennaEnd]),
       new LineBasicMaterial({
-        color: "#22c55e",
+        color: "#4ade80",
         transparent: true,
-        opacity: 0.92,
+        opacity: 1,
       }),
     );
     earthGroup.add(antennaRay);
@@ -252,9 +264,9 @@ export function GlobeScene({
     const elevationArc = new Line(
       new BufferGeometry(),
       new LineBasicMaterial({
-        color: "#a3e635",
+        color: "#22d3ee",
         transparent: true,
-        opacity: 0.78,
+        opacity: 0.92,
       }),
     );
     elevationArc.geometry.setAttribute(
@@ -263,7 +275,12 @@ export function GlobeScene({
         getGroundStationElevationArcLocalPositions(
           groundStation,
           EARTH_RADIUS * 1.018,
-          0.22,
+          GROUND_STATION_ELEVATION_ARC_RADIUS,
+          24,
+          {
+            azimuthDeg: frame.groundStation.trackedAzimuthDeg,
+            elevationDeg: frame.groundStation.trackedElevationDeg,
+          },
         ),
         3,
       ),
@@ -329,7 +346,13 @@ export function GlobeScene({
       satelliteWorldPosition,
     };
     sceneRef.current = handles;
-    applyFrameToScene(handles, clock, physicalConstants, currentFrameRef.current);
+    applyFrameToScene(
+      handles,
+      clock,
+      physicalConstants,
+      groundStation,
+      currentFrameRef.current,
+    );
 
     let isHoveringStation = false;
     let pointerDownPosition: { x: number; y: number } | null = null;
@@ -533,6 +556,7 @@ function applyFrameToScene(
   handles: SceneHandles | null,
   clock: SimulationClock,
   physicalConstants: PhysicalConstants,
+  groundStation: GroundStation,
   frame: SimulationFrame,
 ) {
   if (!handles) return;
@@ -554,6 +578,56 @@ function applyFrameToScene(
   );
   handles.satelliteGlow.position.copy(handles.satelliteMarker.position);
   handles.satelliteGlow.scale.setScalar(1 + getPulseScale(clock, frame.currentUnixMs) * 0.16);
+  const stationPosition = handles.stationMarker.position;
+  const antennaDirection = getGroundStationAntennaDirectionLocalVector(
+    groundStation,
+    {
+      azimuthDeg: frame.groundStation.trackedAzimuthDeg,
+      elevationDeg: frame.groundStation.trackedElevationDeg,
+    },
+  );
+  const boresightLength = getBoresightLength(
+    EARTH_RADIUS,
+    frame.groundStation.slantRangeM,
+    physicalConstants.earthModel.meanRadiusM,
+  );
+  const antennaEnd = stationPosition
+    .clone()
+    .add(
+      new Vector3(antennaDirection.x, antennaDirection.y, antennaDirection.z).multiplyScalar(
+        boresightLength,
+      ),
+    );
+  handles.antennaRay.geometry.setAttribute(
+    "position",
+    new Float32BufferAttribute(
+      [
+        stationPosition.x,
+        stationPosition.y,
+        stationPosition.z,
+        antennaEnd.x,
+        antennaEnd.y,
+        antennaEnd.z,
+      ],
+      3,
+    ),
+  );
+  handles.elevationArc.geometry.setAttribute(
+    "position",
+    new Float32BufferAttribute(
+      getGroundStationElevationArcLocalPositions(
+        groundStation,
+        EARTH_RADIUS * 1.018,
+        GROUND_STATION_ELEVATION_ARC_RADIUS,
+        24,
+        {
+          azimuthDeg: frame.groundStation.trackedAzimuthDeg,
+          elevationDeg: frame.groundStation.trackedElevationDeg,
+        },
+      ),
+      3,
+    ),
+  );
   handles.stationMarker.getWorldPosition(handles.stationWorldPosition);
   handles.satelliteMarker.getWorldPosition(handles.satelliteWorldPosition);
 }
@@ -609,4 +683,12 @@ function makeCloudTexture() {
   const texture = new CanvasTexture(canvas);
   texture.needsUpdate = true;
   return texture;
+}
+
+function getBoresightLength(
+  earthRadiusSceneUnits: number,
+  slantRangeM: number,
+  earthRadiusMeters: number,
+) {
+  return 0.4 * slantRangeM * (earthRadiusSceneUnits / earthRadiusMeters);
 }

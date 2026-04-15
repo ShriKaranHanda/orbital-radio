@@ -1,4 +1,9 @@
-import { deriveGroundStationState } from "./src/lib/ground-station";
+import {
+  deriveGroundStationState,
+  getNextGroundStationPointing,
+  normalizeDegrees,
+  type GroundStationPointing,
+} from "./src/lib/ground-station";
 import { buildSatelliteRecord, propagateSatelliteFrame } from "./src/lib/orbit";
 
 export type SimulationState = {
@@ -171,10 +176,21 @@ export type GroundStationDerivedState = {
   requiredElevationDeg: number;
   isAboveGeometricHorizon: boolean;
   clearsOperationalMask: boolean;
+  commandedAzimuthDeg: number;
+  commandedElevationDeg: number;
+  trackedAzimuthDeg: number;
+  trackedElevationDeg: number;
   pointingAzimuthErrorDeg: number;
   pointingElevationErrorDeg: number;
   pointingSeparationDeg: number;
 };
+
+export const GROUND_STATION_STEERING_LIMITS = {
+  maxAzimuthRateDegPerSecond: 1.2,
+  maxElevationRateDegPerSecond: 1.2,
+} as const;
+
+export const GROUND_STATION_3DB_BEAMWIDTH_DEG = 0.7;
 
 export const PHYSICAL_CONSTANTS: PhysicalConstants = {
   speedOfLightMps: 299_792_458,
@@ -376,6 +392,10 @@ export function buildSimulationFrames(
   const stepMs = clock.stepSeconds * 1_000;
   const satelliteRecord = buildSatelliteRecord(config.tle);
   const frames: SimulationFrame[] = [];
+  let groundStationPointing: GroundStationPointing = {
+    azimuthDeg: normalizeDegrees(config.groundStation.antenna.azimuthDeg),
+    elevationDeg: config.groundStation.antenna.elevationDeg,
+  };
 
   for (
     let currentUnixMs = clock.startUnixMs, index = 0;
@@ -383,17 +403,30 @@ export function buildSimulationFrames(
     currentUnixMs += stepMs, index += 1
   ) {
     const satellite = propagateSatelliteFrame(satelliteRecord, currentUnixMs);
+    const derivedGroundStation = deriveGroundStationState(
+      config.groundStation,
+      physicalConstants,
+      satellite,
+      groundStationPointing,
+    );
 
     frames.push({
       index,
       currentUnixMs,
       satellite,
-      groundStation: deriveGroundStationState(
-        config.groundStation,
-        physicalConstants,
-        satellite,
-      ),
+      groundStation: derivedGroundStation,
     });
+
+    groundStationPointing = getNextGroundStationPointing(
+      groundStationPointing,
+      {
+        azimuthDeg: derivedGroundStation.commandedAzimuthDeg,
+        elevationDeg: derivedGroundStation.commandedElevationDeg,
+      },
+      GROUND_STATION_STEERING_LIMITS,
+      clock.stepSeconds,
+      config.groundStation.minElevationDeg,
+    );
   }
 
   return frames;

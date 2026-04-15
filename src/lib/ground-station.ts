@@ -16,10 +16,24 @@ type Vec3Like = {
   z: number;
 };
 
+export type GroundStationPointing = {
+  azimuthDeg: number;
+  elevationDeg: number;
+};
+
+export type GroundStationPointingRatesDegPerSecond = {
+  maxAzimuthRateDegPerSecond: number;
+  maxElevationRateDegPerSecond: number;
+};
+
 export function deriveGroundStationState(
   groundStation: GroundStationConfig,
   physicalConstants: PhysicalConstants,
   satellite: SatelliteFrameState,
+  trackedPointing: GroundStationPointing = {
+    azimuthDeg: groundStation.antenna.azimuthDeg,
+    elevationDeg: groundStation.antenna.elevationDeg,
+  },
 ): GroundStationDerivedState {
   const groundStationEcef = getGroundStationEcef(groundStation, physicalConstants);
   const relativeVector = subtractVectors(
@@ -36,6 +50,10 @@ export function deriveGroundStationState(
     groundStation.minElevationDeg,
     horizonMaskElevationDeg,
   );
+  const commandedAzimuthDeg = normalizeDegrees(azimuthDeg);
+  const commandedElevationDeg = elevationDeg;
+  const trackedAzimuthDeg = normalizeDegrees(trackedPointing.azimuthDeg);
+  const trackedElevationDeg = trackedPointing.elevationDeg;
 
   return {
     azimuthDeg,
@@ -45,16 +63,51 @@ export function deriveGroundStationState(
     requiredElevationDeg,
     isAboveGeometricHorizon: elevationDeg >= 0,
     clearsOperationalMask: elevationDeg >= requiredElevationDeg,
+    commandedAzimuthDeg,
+    commandedElevationDeg,
+    trackedAzimuthDeg,
+    trackedElevationDeg,
     pointingAzimuthErrorDeg: getWrappedAngularDifferenceDeg(
-      azimuthDeg,
-      groundStation.antenna.azimuthDeg,
+      commandedAzimuthDeg,
+      trackedAzimuthDeg,
     ),
-    pointingElevationErrorDeg: elevationDeg - groundStation.antenna.elevationDeg,
+    pointingElevationErrorDeg: commandedElevationDeg - trackedElevationDeg,
     pointingSeparationDeg: getAngularSeparationDeg(
-      azimuthDeg,
-      elevationDeg,
-      groundStation.antenna.azimuthDeg,
-      groundStation.antenna.elevationDeg,
+      commandedAzimuthDeg,
+      commandedElevationDeg,
+      trackedAzimuthDeg,
+      trackedElevationDeg,
+    ),
+  };
+}
+
+export function getNextGroundStationPointing(
+  currentPointing: GroundStationPointing,
+  commandedPointing: GroundStationPointing,
+  ratesDegPerSecond: GroundStationPointingRatesDegPerSecond,
+  timeStepSeconds: number,
+  minElevationDeg: number,
+): GroundStationPointing {
+  const deltaAzimuthDeg = getWrappedAngularDifferenceDeg(
+    commandedPointing.azimuthDeg,
+    currentPointing.azimuthDeg,
+  );
+  const deltaElevationDeg = commandedPointing.elevationDeg - currentPointing.elevationDeg;
+  const maxAzimuthStepDeg = ratesDegPerSecond.maxAzimuthRateDegPerSecond * timeStepSeconds;
+  const maxElevationStepDeg = ratesDegPerSecond.maxElevationRateDegPerSecond * timeStepSeconds;
+
+  return {
+    azimuthDeg: normalizeDegrees(
+      currentPointing.azimuthDeg +
+        clamp(deltaAzimuthDeg, -maxAzimuthStepDeg, maxAzimuthStepDeg),
+    ),
+    elevationDeg: Math.max(
+      minElevationDeg,
+      currentPointing.elevationDeg + clamp(
+      deltaElevationDeg,
+      -maxElevationStepDeg,
+      maxElevationStepDeg,
+      ),
     ),
   };
 }
@@ -146,10 +199,14 @@ export function getGroundStationLocalBasis(groundStation: GroundStationConfig) {
 
 export function getGroundStationAntennaDirectionLocalVector(
   groundStation: GroundStationConfig,
+  pointing: GroundStationPointing = {
+    azimuthDeg: groundStation.antenna.azimuthDeg,
+    elevationDeg: groundStation.antenna.elevationDeg,
+  },
 ) {
   const { east, north, up } = getGroundStationLocalBasis(groundStation);
-  const azimuthRad = groundStation.antenna.azimuthDeg * DEG_TO_RAD;
-  const elevationRad = groundStation.antenna.elevationDeg * DEG_TO_RAD;
+  const azimuthRad = normalizeDegrees(pointing.azimuthDeg) * DEG_TO_RAD;
+  const elevationRad = pointing.elevationDeg * DEG_TO_RAD;
   const horizontalScale = Math.cos(elevationRad);
   const eastScale = horizontalScale * Math.sin(azimuthRad);
   const northScale = horizontalScale * Math.cos(azimuthRad);
@@ -168,10 +225,14 @@ export function getGroundStationElevationArcLocalPositions(
   stationRadius: number,
   arcRadius = 0.2,
   segments = 24,
+  pointing: GroundStationPointing = {
+    azimuthDeg: groundStation.antenna.azimuthDeg,
+    elevationDeg: groundStation.antenna.elevationDeg,
+  },
 ) {
   const { east, north, up } = getGroundStationLocalBasis(groundStation);
-  const azimuthRad = groundStation.antenna.azimuthDeg * DEG_TO_RAD;
-  const elevationRad = groundStation.antenna.elevationDeg * DEG_TO_RAD;
+  const azimuthRad = normalizeDegrees(pointing.azimuthDeg) * DEG_TO_RAD;
+  const elevationRad = pointing.elevationDeg * DEG_TO_RAD;
   const horizonDirection = normalizeVector(
     addVectors(
       scaleVector(east, Math.sin(azimuthRad)),
@@ -230,7 +291,7 @@ function subtractVectors(minuend: Cartesian3, subtrahend: Cartesian3): Cartesian
   };
 }
 
-function normalizeDegrees(angleDeg: number) {
+export function normalizeDegrees(angleDeg: number) {
   return ((angleDeg % FULL_CIRCLE_DEG) + FULL_CIRCLE_DEG) % FULL_CIRCLE_DEG;
 }
 

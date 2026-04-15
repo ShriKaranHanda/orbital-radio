@@ -135,6 +135,22 @@ export function GroundStationCard({
                 />
                 <Detail label="Elevation" value={formatDegrees(derivedState.elevationDeg)} />
                 <Detail
+                  label="Commanded azimuth"
+                  value={formatAzimuth(derivedState.commandedAzimuthDeg)}
+                />
+                <Detail
+                  label="Commanded elevation"
+                  value={formatDegrees(derivedState.commandedElevationDeg)}
+                />
+                <Detail
+                  label="Tracked azimuth"
+                  value={formatAzimuth(derivedState.trackedAzimuthDeg)}
+                />
+                <Detail
+                  label="Tracked elevation"
+                  value={formatDegrees(derivedState.trackedElevationDeg)}
+                />
+                <Detail
                   label="Slant range"
                   value={formatDistanceMeters(derivedState.slantRangeM)}
                 />
