@@ -58,8 +58,48 @@ export function formatPowerWatts(value: number) {
   return `${value.toFixed(1)} W`;
 }
 
+export function formatBitRate(value: number) {
+  if (value >= 1_000_000_000) {
+    return `${(value / 1_000_000_000).toFixed(2)} Gbps`;
+  }
+
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(2)} Mbps`;
+  }
+
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(2)} kbps`;
+  }
+
+  return `${value.toFixed(0)} bps`;
+}
+
+export function formatPacketRate(value: number) {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(2)} Mpps`;
+  }
+
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(2)} kpps`;
+  }
+
+  return `${value.toFixed(1)} pps`;
+}
+
 export function formatPercent(value: number) {
   return `${(value * 100).toFixed(1)}%`;
+}
+
+export function formatProbability(value: number) {
+  if (value <= 0) {
+    return "0";
+  }
+
+  if (value >= 0.01) {
+    return `${(value * 100).toFixed(2)}%`;
+  }
+
+  return value.toExponential(2);
 }
 
 export function formatTemperatureC(value: number) {

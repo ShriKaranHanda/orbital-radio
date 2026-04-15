@@ -209,6 +209,7 @@ export function App() {
           currentUnixMs={visualFrame.currentUnixMs}
           derivedState={visualFrame.groundStation}
           hardwareState={visualFrame.hardware}
+          linkState={visualFrame.link}
           onClose={() => setSelectedStation(null)}
         />
       ) : null}

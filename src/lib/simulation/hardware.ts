@@ -545,6 +545,7 @@ function deriveGroundTerminalState(
     txPowerOffsetDb: perturbations.txPowerOffsetDb,
     rxGainOffsetDb: perturbations.rxGainOffsetDb,
     txGainOffsetDb: perturbations.txGainOffsetDb,
+    txRfLossDb: constants.groundStation.txRfLossDb,
     rxNoiseFigureOffsetDb: perturbations.rxNoiseFigureOffsetDb,
     rxNoiseFigureDb:
       constants.groundStation.rxNoiseFigureNominalDb +

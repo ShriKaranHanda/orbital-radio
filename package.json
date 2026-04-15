@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test:unit": "bun test unit-tests/geometry.test.ts",
+    "test:unit": "bun test unit-tests",
     "test:e2e": "playwright test",
     "test:e2e:open": "PLAYWRIGHT_NO_WEBSERVER=1 playwright test"
   },
