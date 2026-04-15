@@ -3,3 +3,15 @@ dist
 test-results
 playwright-report
 blob-report
+
+# LaTeX
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg
+*.pdf
