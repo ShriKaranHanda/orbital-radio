@@ -33,7 +33,6 @@ import {
   getCloudRotationRad,
   getEarthRotationRad,
   getGroundStationLocalVector,
-  getPulseScale,
   getSatelliteInertialLocalVector,
   getSatellitePathLocalPositions,
 } from "../lib/simulation-visuals";
@@ -701,7 +700,7 @@ function applyFrameToScene(
 
   handles.earthGroup.rotation.y = getEarthRotationRad(frame.currentUnixMs);
   handles.cloudLayer.rotation.y = getCloudRotationRad(frame.currentUnixMs);
-  handles.stationPulse.scale.setScalar(getPulseScale(clock, frame.currentUnixMs));
+  handles.stationPulse.scale.setScalar(1);
   handles.inertialGroup.rotation.y = 0;
   handles.satelliteMarker.position.set(
     satelliteInertialLocalPosition.x,
@@ -709,7 +708,7 @@ function applyFrameToScene(
     satelliteInertialLocalPosition.z,
   );
   handles.satelliteGlow.position.copy(handles.satelliteMarker.position);
-  handles.satelliteGlow.scale.setScalar(1 + getPulseScale(clock, frame.currentUnixMs) * 0.16);
+  handles.satelliteGlow.scale.setScalar(1);
   const stationPosition = handles.stationMarker.position;
   const stationRadius = getGroundStationAnchorRadius(groundStation, physicalConstants);
   const antennaDirection = getGroundStationAntennaDirectionLocalVector(
