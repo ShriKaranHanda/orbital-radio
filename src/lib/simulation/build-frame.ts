@@ -12,6 +12,7 @@ import {
   isFrameInPass,
 } from "./geometry";
 import { buildHardwareStates } from "./hardware";
+import { deriveLinkState } from "./link";
 import { deriveSunState } from "./sun";
 import type {
   HardwareNominalConstants,
@@ -122,8 +123,13 @@ export function buildSimulationFrames(
     nominalConstants,
   );
 
-  return framesWithoutHardware.map((frame, index) => ({
-    ...frame,
-    hardware: hardwareStates[index],
-  }));
+  return framesWithoutHardware.map((frame, index) => {
+    const hardware = hardwareStates[index];
+
+    return {
+      ...frame,
+      hardware,
+      link: deriveLinkState(config, physicalConstants, frame.groundStation, hardware),
+    };
+  });
 }

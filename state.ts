@@ -225,6 +225,7 @@ export type SimulationFrame = {
   satellite: SatelliteFrameState;
   groundStation: GroundStationDerivedState;
   hardware: SimulationHardwareState;
+  link: SimulationLinkState;
   sun: SunDerivedState;
 };
 
@@ -243,6 +244,7 @@ export type GroundTerminalHardwareState = {
   txPowerOffsetDb: number;
   rxGainOffsetDb: number;
   txGainOffsetDb: number;
+  txRfLossDb: number;
   rxNoiseFigureOffsetDb: number;
   rxNoiseFigureDb: number;
   referenceOffsetHz: number;
@@ -359,6 +361,54 @@ export type SimulationHardwareState = {
   powerBus: SatellitePowerBusHardwareState;
   compute: SatelliteComputeHardwareState;
   reason: HardwareReasonState;
+};
+
+export type LinkMcsSelectionState = {
+  id: string | null;
+  label: string | null;
+  spectralEfficiencyBitsPerHz: number;
+  requiredSnrDb: number | null;
+};
+
+export type LinkEvmState = {
+  thermalSquared: number;
+  cfoSquared: number;
+  jitterSquared: number;
+  phaseSquared: number;
+  powerAmplifierSquared: number;
+  groundTransmitterSquared: number;
+  totalSquared: number;
+  rms: number;
+};
+
+export type SimulationLinkDirectionState = {
+  isOperational: boolean;
+  polarizationLossDb: number;
+  eirpDbw: number;
+  freeSpaceLossDb: number;
+  atmosphericLossDb: number;
+  miscLossDb: number;
+  receivePowerDbw: number;
+  antennaNoiseTempK: number;
+  equivalentNoiseTempK: number;
+  systemNoiseTempK: number;
+  noisePowerDbw: number;
+  rawSnrDb: number;
+  rawSnrLinear: number;
+  evm: LinkEvmState;
+  effectiveSnrDb: number;
+  effectiveSnrLinear: number;
+  selectedMcs: LinkMcsSelectionState;
+  ber: number;
+  per: number;
+  packetBits: number;
+  scheduledPayloadRateBps: number;
+  serviceRatePacketsPerSecond: number;
+};
+
+export type SimulationLinkState = {
+  downlink: SimulationLinkDirectionState;
+  uplink: SimulationLinkDirectionState;
 };
 
 export const GROUND_STATION_STEERING_LIMITS = {
