@@ -445,31 +445,6 @@ button {
   text-transform: uppercase;
 }
 
-.station-tooltip {
-  position: fixed;
-  z-index: 20;
-  display: grid;
-  gap: 3px;
-  min-width: 184px;
-  padding: 10px 12px;
-  color: #eaf4ff;
-  background: rgba(3, 7, 18, 0.86);
-  border: 1px solid rgba(56, 189, 248, 0.42);
-  border-radius: 8px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.38);
-  backdrop-filter: blur(10px);
-  pointer-events: none;
-}
-
-.station-tooltip strong {
-  font-size: 13px;
-}
-
-.station-tooltip span {
-  color: #b9c7d9;
-  font-size: 12px;
-}
-
 .card {
   color: #edf5ff;
   background: var(--panel);
