@@ -97,8 +97,10 @@ const DEFAULT_CAMERA_DISTANCE = Math.hypot(0, 1.35, 6.4);
 const DEFAULT_ROTATE_SPEED = 0.55;
 const ZOOM_ANIMATION_MS = 650;
 const GROUND_STATION_ELEVATION_ARC_RADIUS = 0.15;
-const GROUND_STATION_MARKER_RADIUS = 0.055;
-const GROUND_STATION_PULSE_RADIUS = 0.09;
+const SATELLITE_MARKER_RADIUS = 0.065;
+const SATELLITE_GLOW_RADIUS = 0.12;
+const GROUND_STATION_MARKER_RADIUS = SATELLITE_MARKER_RADIUS;
+const GROUND_STATION_PULSE_RADIUS = SATELLITE_GLOW_RADIUS;
 const DEFAULT_ROTATION_CENTER = new Vector3(0, 0, 0);
 
 export function GlobeScene({
@@ -336,13 +338,13 @@ export function GlobeScene({
     inertialGroup.add(satellitePath);
 
     const satelliteMarker = new Mesh(
-      new SphereGeometry(0.065, 32, 32),
+      new SphereGeometry(SATELLITE_MARKER_RADIUS, 32, 32),
       new MeshBasicMaterial({ color: "#f59e0b" }),
     );
     inertialGroup.add(satelliteMarker);
 
     const satelliteGlow = new Mesh(
-      new SphereGeometry(0.12, 32, 32),
+      new SphereGeometry(SATELLITE_GLOW_RADIUS, 32, 32),
       new MeshBasicMaterial({
         color: "#fde68a",
         transparent: true,

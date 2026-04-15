@@ -354,6 +354,10 @@ button {
   border-radius: 8px;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(16px);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .station-card,
@@ -364,11 +368,28 @@ button {
   bottom: calc(var(--page-gutter) + var(--timeline-clearance));
   z-index: 10;
   width: min(390px, calc(100vw - 32px));
-  overflow: auto;
+}
+
+.satellite-card .card-description {
+  color: #f59e0b;
 }
 
 .card-header {
   padding: 20px 20px 10px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: 0 0 auto;
+  background: var(--panel);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-title-group {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .card-title {
@@ -389,26 +410,35 @@ button {
 
 .card-content {
   padding: 10px 20px 20px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .icon-button {
-  position: absolute;
-  top: 12px;
-  right: 12px;
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  margin-top: 0;
   color: #c7d2e1;
   background: rgba(15, 23, 42, 0.78);
   border: 1px solid var(--border);
   border-radius: 8px;
+  align-self: flex-start;
+  z-index: 3;
   cursor: pointer;
 }
 
 .icon-button:hover {
   color: #ffffff;
   border-color: rgba(56, 189, 248, 0.46);
+}
+
+.icon-button > svg {
+  width: 16px;
+  height: 16px;
 }
 
 .metric-grid {

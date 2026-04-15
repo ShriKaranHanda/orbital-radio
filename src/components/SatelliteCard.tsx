@@ -35,12 +35,14 @@ export function SatelliteCard({
 }: SatelliteCardProps) {
   return (
     <Card className="satellite-card">
-      <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
-        <X size={16} />
-      </button>
       <CardHeader>
-        <CardDescription>Satellite</CardDescription>
-        <CardTitle>{satellite.name}</CardTitle>
+        <div className="card-title-group">
+          <CardDescription>Satellite</CardDescription>
+          <CardTitle>{satellite.name}</CardTitle>
+        </div>
+        <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+          <X size={16} />
+        </button>
       </CardHeader>
       <CardContent>
         <div className="metric-grid">
