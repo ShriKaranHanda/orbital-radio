@@ -1,3 +1,4 @@
+import { deriveGroundStationState } from "./src/lib/ground-station";
 import { buildSatelliteRecord, propagateSatelliteFrame } from "./src/lib/orbit";
 
 export type SimulationState = {
@@ -159,6 +160,20 @@ export type SimulationFrame = {
   index: number;
   currentUnixMs: number;
   satellite: SatelliteFrameState;
+  groundStation: GroundStationDerivedState;
+};
+
+export type GroundStationDerivedState = {
+  azimuthDeg: number;
+  elevationDeg: number;
+  slantRangeM: number;
+  horizonMaskElevationDeg: number;
+  requiredElevationDeg: number;
+  isAboveGeometricHorizon: boolean;
+  clearsOperationalMask: boolean;
+  pointingAzimuthErrorDeg: number;
+  pointingElevationErrorDeg: number;
+  pointingSeparationDeg: number;
 };
 
 export const PHYSICAL_CONSTANTS: PhysicalConstants = {
@@ -346,8 +361,9 @@ export const DEFAULT_SIMULATION_CLOCK: SimulationClock = {
 };
 
 export function buildSimulationFrames(
-  config: Pick<SimulationConfig, "tle">,
+  config: Pick<SimulationConfig, "tle" | "groundStation">,
   clock: SimulationClock,
+  physicalConstants: PhysicalConstants,
 ): SimulationFrame[] {
   if (clock.stepSeconds <= 0) {
     throw new Error("Simulation clock stepSeconds must be greater than zero.");
@@ -366,10 +382,17 @@ export function buildSimulationFrames(
     currentUnixMs <= clock.endUnixMs;
     currentUnixMs += stepMs, index += 1
   ) {
+    const satellite = propagateSatelliteFrame(satelliteRecord, currentUnixMs);
+
     frames.push({
       index,
       currentUnixMs,
-      satellite: propagateSatelliteFrame(satelliteRecord, currentUnixMs),
+      satellite,
+      groundStation: deriveGroundStationState(
+        config.groundStation,
+        physicalConstants,
+        satellite,
+      ),
     });
   }
 
@@ -382,7 +405,11 @@ export const DEFAULT_SIMULATION_STATE: SimulationState = {
   mcsTable: MCS_TABLE,
   physicalConstants: PHYSICAL_CONSTANTS,
   hardwareNominalConstants: HARDWARE_NOMINAL_CONSTANTS,
-  frames: buildSimulationFrames(DEFAULT_SIMULATION_CONFIG, DEFAULT_SIMULATION_CLOCK),
+  frames: buildSimulationFrames(
+    DEFAULT_SIMULATION_CONFIG,
+    DEFAULT_SIMULATION_CLOCK,
+    PHYSICAL_CONSTANTS,
+  ),
 };
 
 function tleEpochToUnixMs(epoch: TleElements["epoch"]): number {
