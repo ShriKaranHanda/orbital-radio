@@ -1,11 +1,11 @@
 import {
+  eciToEcf,
+  gstime,
   json2satrec,
-} from "../../node_modules/satellite.js/dist/io.js";
-import { propagate } from "../../node_modules/satellite.js/dist/propagation.js";
-import { gstime } from "../../node_modules/satellite.js/dist/propagation/gstime.js";
-import { eciToEcf } from "../../node_modules/satellite.js/dist/transforms.js";
-import type { OMMJsonObject } from "../../node_modules/satellite.js/dist/common-types.js";
-import type { SatRec } from "../../node_modules/satellite.js/dist/propagation/SatRec.js";
+  propagate,
+  type OMMJsonObject,
+  type SatRec,
+} from "satellite.js";
 import type { Cartesian3, SatelliteFrameState, TleElements } from "../../state";
 
 const METERS_PER_KILOMETER = 1_000;

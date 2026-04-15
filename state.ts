@@ -155,6 +155,13 @@ export type SatelliteFrameState = {
   velocityEcefMps: Cartesian3;
 };
 
+export type SunDerivedState = {
+  directionEciUnit: Cartesian3;
+  directionEcefUnit: Cartesian3;
+  solarFluxWPerM2: number;
+  sunExposureFactor: number;
+};
+
 export type GroundStationPassWindowMetadata = {
   kIn: number | null;
   kApex: number | null;
@@ -191,6 +198,7 @@ export type SimulationFrame = {
   currentUnixMs: number;
   satellite: SatelliteFrameState;
   groundStation: GroundStationDerivedState;
+  sun: SunDerivedState;
 };
 
 export type GroundStationDerivedState = GroundStationGeometryState &

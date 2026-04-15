@@ -1,4 +1,4 @@
-import type { SatelliteFrameState } from "../../state";
+import type { SatelliteFrameState, SunDerivedState } from "../../state";
 import { X } from "lucide-react";
 import type { Satellite } from "../types";
 import {
@@ -24,6 +24,7 @@ type SatelliteCardProps = {
   satellite: Satellite;
   currentUnixMs: number;
   frameState: SatelliteFrameState;
+  sunState: SunDerivedState;
   onClose: () => void;
 };
 
@@ -31,6 +32,7 @@ export function SatelliteCard({
   satellite,
   currentUnixMs,
   frameState,
+  sunState,
   onClose,
 }: SatelliteCardProps) {
   return (
@@ -54,7 +56,7 @@ export function SatelliteCard({
 
         <Accordion
           type="multiple"
-          defaultValue={["identity", "orbit", "eci", "ecef"]}
+          defaultValue={["identity", "orbit", "eci", "ecef", "sun"]}
           className="accordion"
         >
           <AccordionItem value="identity">
@@ -124,6 +126,30 @@ export function SatelliteCard({
               </dl>
             </AccordionContent>
           </AccordionItem>
+
+          <AccordionItem value="sun">
+            <AccordionTrigger>Sun</AccordionTrigger>
+            <AccordionContent>
+              <dl className="detail-list">
+                <Detail
+                  label="Exposure factor"
+                  value={sunState.sunExposureFactor.toFixed(3)}
+                />
+                <Detail
+                  label="Solar flux"
+                  value={`${sunState.solarFluxWPerM2.toFixed(1)} W/m^2`}
+                />
+                <Detail
+                  label="ECI direction"
+                  value={formatUnitVector(sunState.directionEciUnit)}
+                />
+                <Detail
+                  label="ECEF direction"
+                  value={formatUnitVector(sunState.directionEcefUnit)}
+                />
+              </dl>
+            </AccordionContent>
+          </AccordionItem>
         </Accordion>
       </CardContent>
     </Card>
@@ -155,4 +181,8 @@ function formatInternationalDesignator(satellite: Satellite) {
 
 function formatVelocityMagnitude(vector: { x: number; y: number; z: number }) {
   return `${Math.hypot(vector.x, vector.y, vector.z).toFixed(1)} m/s`;
+}
+
+function formatUnitVector(vector: { x: number; y: number; z: number }) {
+  return `x ${vector.x.toFixed(4)}, y ${vector.y.toFixed(4)}, z ${vector.z.toFixed(4)}`;
 }
