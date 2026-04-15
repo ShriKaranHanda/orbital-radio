@@ -40,7 +40,7 @@ import {
   getGroundStationAntennaDirectionLocalVector,
   getGroundStationElevationArcLocalPositions,
 } from "../lib/ground-station";
-import type { GroundStation } from "../types";
+import type { GroundStation, Satellite } from "../types";
 
 declare global {
   interface Window {
@@ -63,12 +63,15 @@ type GlobeSceneProps = {
   frame: SimulationFrame;
   frames: readonly SimulationFrame[];
   groundStation: GroundStation;
+  satellite: Satellite;
   physicalConstants: PhysicalConstants;
   selectedStation: GroundStation | null;
+  selectedSatellite: Satellite | null;
   onGroundStationHover: (
     hover: { station: GroundStation; x: number; y: number } | null,
   ) => void;
   onGroundStationSelect: (station: GroundStation) => void;
+  onSatelliteSelect: (satellite: Satellite) => void;
 };
 
 type SceneHandles = {
@@ -103,10 +106,13 @@ export function GlobeScene({
   frame,
   frames,
   groundStation,
+  satellite,
   physicalConstants,
   selectedStation,
+  selectedSatellite,
   onGroundStationHover,
   onGroundStationSelect,
+  onSatelliteSelect,
 }: GlobeSceneProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<SceneHandles | null>(null);
@@ -119,11 +125,11 @@ export function GlobeScene({
     handles.controls.update();
   };
   const selectionTransitionRef = useRef<{
-    previous: GroundStation | null;
-    current: GroundStation | null;
+    previous: boolean;
+    current: boolean;
   }>({
-    previous: selectedStation,
-    current: selectedStation,
+    previous: selectedStation !== null || selectedSatellite !== null,
+    current: selectedStation !== null || selectedSatellite !== null,
   });
 
   useEffect(() => {
@@ -382,6 +388,7 @@ export function GlobeScene({
     );
 
     let isHoveringStation = false;
+    let isHoveringSatellite = false;
     let isShiftPanning = false;
     let shiftPanPointerId: number | null = null;
     let shiftPanPosition: { x: number; y: number } | null = null;
@@ -402,7 +409,7 @@ export function GlobeScene({
 
     const syncSelectionState = () => {
       const selection = selectionTransitionRef.current;
-      const wasDeselected = selection.previous !== null && selection.current === null;
+      const wasDeselected = selection.previous && !selection.current;
 
       if (wasDeselected) {
         animateCameraTo(camera.position.clone().normalize().multiplyScalar(DEFAULT_CAMERA_DISTANCE));
@@ -454,6 +461,16 @@ export function GlobeScene({
       const { projected, x, y } = getProjectedStationScreenPosition();
       const distancePx = Math.hypot(event.clientX - x, event.clientY - y);
       return projected.z < 1 && distancePx < 22;
+    };
+
+    const intersectsSatelliteMarker = (event: PointerEvent) => {
+      satelliteMarker.getWorldPosition(satelliteWorldPosition);
+      const rect = renderer.domElement.getBoundingClientRect();
+      const projected = satelliteWorldPosition.clone().project(camera);
+      const x = ((projected.x + 1) / 2) * rect.width + rect.left;
+      const y = ((1 - projected.y) / 2) * rect.height + rect.top;
+      const distancePx = Math.hypot(event.clientX - x, event.clientY - y);
+      return projected.z < 1 && distancePx < 18;
     };
 
     const panRotationCenter = (event: PointerEvent) => {
@@ -509,7 +526,9 @@ export function GlobeScene({
       }
 
       isHoveringStation = intersectsStationMarker(event);
-      renderer.domElement.style.cursor = isHoveringStation ? "pointer" : "grab";
+      isHoveringSatellite = intersectsSatelliteMarker(event);
+      renderer.domElement.style.cursor =
+        isHoveringStation || isHoveringSatellite ? "pointer" : "grab";
 
       if (isHoveringStation) {
         onGroundStationHover({
@@ -528,6 +547,7 @@ export function GlobeScene({
       shiftPanPosition = null;
       pointerDownPosition = null;
       isHoveringStation = false;
+      isHoveringSatellite = false;
       renderer.domElement.style.cursor = "grab";
       onGroundStationHover(null);
     };
@@ -570,11 +590,20 @@ export function GlobeScene({
       );
       pointerDownPosition = null;
 
-      if (movedPx > 6 || !intersectsStationMarker(event)) return;
+      if (movedPx > 6) return;
 
-      onGroundStationSelect(groundStation);
-      stationMarker.getWorldPosition(stationWorldPosition);
-      animateCameraTo(stationWorldPosition.clone().normalize().multiplyScalar(4.15));
+      if (intersectsStationMarker(event)) {
+        onGroundStationSelect(groundStation);
+        stationMarker.getWorldPosition(stationWorldPosition);
+        animateCameraTo(stationWorldPosition.clone().normalize().multiplyScalar(4.15));
+        return;
+      }
+
+      if (intersectsSatelliteMarker(event)) {
+        onSatelliteSelect(satellite);
+        satelliteMarker.getWorldPosition(satelliteWorldPosition);
+        animateCameraTo(satelliteWorldPosition.clone().normalize().multiplyScalar(4.6));
+      }
     };
 
     renderer.domElement.addEventListener("pointermove", onPointerMove);
@@ -596,6 +625,7 @@ export function GlobeScene({
     const render = () => {
       frameId = requestAnimationFrame(render);
       stationMarker.scale.setScalar(isHoveringStation ? 1.28 : 1);
+      satelliteMarker.scale.setScalar(isHoveringSatellite ? 1.28 : 1);
       syncSelectionState();
 
       if (zoomAnimation) {
@@ -618,7 +648,8 @@ export function GlobeScene({
       if (isShiftPanning) {
         renderer.domElement.style.cursor = "grabbing";
       } else {
-        renderer.domElement.style.cursor = isHoveringStation ? "pointer" : "grab";
+        renderer.domElement.style.cursor =
+          isHoveringStation || isHoveringSatellite ? "pointer" : "grab";
       }
       controls.update();
       renderer.render(scene, camera);
@@ -657,17 +688,19 @@ export function GlobeScene({
     clock,
     frames,
     groundStation,
+    satellite,
     onGroundStationHover,
     onGroundStationSelect,
+    onSatelliteSelect,
     physicalConstants,
   ]);
 
   useEffect(() => {
     selectionTransitionRef.current = {
       previous: selectionTransitionRef.current.current,
-      current: selectedStation,
+      current: selectedStation !== null || selectedSatellite !== null,
     };
-  }, [selectedStation]);
+  }, [selectedSatellite, selectedStation]);
 
   return (
     <div ref={mountRef} className="globe-scene" aria-label="3D Earth scene">
