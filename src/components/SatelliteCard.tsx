@@ -1,4 +1,4 @@
-import type { SatelliteFrameState, SimulationHardwareState } from "../../state";
+import type { SatelliteFrameState, SimulationHardwareState, SunDerivedState } from "../../state";
 import { X } from "lucide-react";
 import type { Satellite } from "../types";
 import {
@@ -34,6 +34,7 @@ type SatelliteCardProps = {
   currentUnixMs: number;
   frameState: SatelliteFrameState;
   hardwareState: SimulationHardwareState;
+  sunState: SunDerivedState;
   onClose: () => void;
 };
 
@@ -42,6 +43,7 @@ export function SatelliteCard({
   currentUnixMs,
   frameState,
   hardwareState,
+  sunState,
   onClose,
 }: SatelliteCardProps) {
   return (
@@ -73,6 +75,7 @@ export function SatelliteCard({
             "identity",
             "orbit",
             "ecef",
+            "sun",
             "steering",
             "array",
             "rf",
@@ -146,6 +149,30 @@ export function SatelliteCard({
               <dl className="detail-list">
                 <Detail label="Position" value={formatVectorMeters(frameState.positionEcefM)} />
                 <Detail label="Velocity" value={formatVectorMetersPerSecond(frameState.velocityEcefMps)} />
+              </dl>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="sun">
+            <AccordionTrigger>Sun</AccordionTrigger>
+            <AccordionContent>
+              <dl className="detail-list">
+                <Detail
+                  label="Exposure factor"
+                  value={sunState.sunExposureFactor.toFixed(3)}
+                />
+                <Detail
+                  label="Solar flux"
+                  value={`${sunState.solarFluxWPerM2.toFixed(1)} W/m^2`}
+                />
+                <Detail
+                  label="ECI direction"
+                  value={formatUnitVector(sunState.directionEciUnit)}
+                />
+                <Detail
+                  label="ECEF direction"
+                  value={formatUnitVector(sunState.directionEcefUnit)}
+                />
               </dl>
             </AccordionContent>
           </AccordionItem>
@@ -484,4 +511,8 @@ function formatReasonTag(value: SimulationHardwareState["reason"]["dominantTag"]
   }
 
   return value.replaceAll("_", " ");
+}
+
+function formatUnitVector(vector: { x: number; y: number; z: number }) {
+  return `x ${vector.x.toFixed(4)}, y ${vector.y.toFixed(4)}, z ${vector.z.toFixed(4)}`;
 }

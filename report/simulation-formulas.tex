@@ -51,6 +51,7 @@ At each second, the per-frame dependency order is:
 \begin{enumerate}
   \item Propagate orbital state with SGP4.
   \item Transform the satellite state into ECEF.
+  \item Derive solar direction, eclipse/penumbra exposure, and instantaneous solar flux.
   \item Derive ground geometry: azimuth, elevation, range, range rate, Doppler.
   \item Evaluate operational visibility and the pass window.
   \item Evaluate active faults for the current second.
@@ -100,26 +101,31 @@ $NF_0$ & Nominal receiver noise figure & Current repo default: 1.8 dB \\
 \subsection{Implementation Constants to Be Chosen Explicitly}
 
 The following are independent model coefficients that the implementation must define in
-one formula-focused module, not inline in UI code:
+one formula-focused module, not inline in UI code. Any symbol in the equations below
+that does not carry a frame index $k$ and is not a direct configuration input is treated
+as one of these fixed pass-level parameters.
 
 \begin{longtable}{p{0.20\textwidth} p{0.68\textwidth}}
 \toprule
 Symbol group & Meaning \\
 \midrule
 \endhead
-$G_{elem}, q_{scan}, \Delta \phi_{LSB}$ & Element gain, scan-loss exponent, phase-quantization step \\
-$\theta_{FOR}$ & Maximum electronic field of regard \\
-$k_{NF}, L_{filter}, L_{conv}, L_{impl}$ & RF front-end thermal sensitivity and fixed losses \\
-$k_{comp}, P_{1dB}$ & PA compression coefficient and 1 dB compression reference \\
-$\alpha_f, \dot{f}_{drift}, \sigma_{t,0}, k_t$ & Oscillator thermal drift, frequency drift rate, jitter coefficients \\
-$C_i, R_i, A_i, \eta_i$ & Thermal capacitance, thermal resistance, exposed area, and coupling coefficients for subsystem $i$ \\
-$A_{sol}, \eta_{sol}, E_{batt,\max}, P_{batt,\max}$ & Solar and battery parameters \\
+$G_{elem}, q_{scan}, \Delta \phi_{LSB}, k_{\phi,T}, k^{arr}_T, T^{arr}_{ref}, d_{elem}, \kappa_{bw}$ & Array gain, scan-loss, thermally induced phase error, thermal gain degradation, spacing, and beamwidth constants \\
+$\theta_{FOR}, \Delta G^{sat,tx}, \Delta G^{sat,rx}$ & Maximum electronic field of regard and satellite TX/RX calibration offsets \\
+$k_{NF}, L_{filter}, L_{conv}, L_{impl}, T^{rf}_{ref}, \Delta NF^{sat,rx}$ & RF front-end thermal sensitivity, fixed losses, RF reference temperature, and satellite RX noise-figure offset \\
+$k_{comp}, P_{1dB}, P_{sat}, k^{pa}_T, k^{pa}_{\eta}, T^{pa}_{ref}, T^{pa}_{derate}, \eta^{pa}_0, \eta^{pa}_{min}, \eta^{pa}_{max}$ & PA compression, saturation, thermal derating, and efficiency parameters \\
+$\alpha_f, \dot{f}_{drift}, \sigma_{t,0}, k_t, T^{osc}_{ref}$ & Oscillator thermal drift, frequency drift rate, jitter coefficients, and reference temperature \\
+$C_i, R_i, A_i, \alpha_i, T_{sink}, T^i_{th}, \Delta T^i_{tag}$ & Thermal capacitance, thermal resistance, exposed area, solar-absorption coefficients, sink temperature, and explainability thresholds for subsystem $i$ \\
+$\Phi_{sun,1AU}, R_{\odot}, A_{sol}, \eta_{sol}, E_{batt,\max}, P_{batt,\max}, SOC_{min}, k^{bus}_P$ & Solar constant at 1 AU, Sun radius, solar-array parameters, battery parameters, minimum battery reserve, and bus-shedding gain \\
+$P^{beam}_{0}, k^{arr}_{scan}, P^{rf}_{0}, k^{rf}_{cpu}, P^{osc}_{0}, P^{house}_{0}, P^{comp}_{idle}, P^{comp}_{max}$ & Baseline array, RF, oscillator, housekeeping, and compute power draws \\
 $C_{comp}, c_{beam}, c_{dop}, c^{dl}_{modem}, c^{ul}_{modem}, c_{tm}$ & Compute capacity and workload coefficients \\
 $\dot{\alpha}_{max}, \dot{E}_{max}, \theta^{3dB}_{gs}$ & Ground-station azimuth slew rate, elevation slew rate, and shared aperture beamwidth used for both ground TX and RX pointing loss \\
-$P^{gs}_{tx,nom}, P^{gs}_{tx,\min}, P^{gs}_{tx,\max}, L^{gs}_{tx,rf}, NF^{gs}_{nom}$ & Ground-station nominal uplink power, power limits, fixed TX RF loss, and nominal RX noise figure \\
+$P^{gs}_{tx,nom}, P^{gs}_{tx,\min}, P^{gs}_{tx,\max}, L^{gs}_{tx,rf}, NF^{gs}_{nom}, T^{ant,gs}_{0}, T^{ant,sat}_{0}$ & Ground-station nominal uplink power, power limits, fixed TX RF loss, nominal RX noise figure, and baseline ground/satellite antenna temperatures \\
 $\sigma^{gs}_{P}, \sigma^{gs}_{G}, \sigma^{gs}_{NF}, \sigma^{gs}_{f}, \sigma^{gs}_{EVM}$ & Ground-station stochastic standard deviations for TX power, aperture gain, RX noise figure, reference offset, and residual transmitter impairment \\
+$L^{zen,dl}, L^{zen,ul}, E_{floor}, L^{misc,dl}, L^{misc,ul}, k^{dl}_{cfo}, k^{ul}_{cfo}, k^{dl}_{pa,evm}, k^{ul}_{pa,evm}, R^{dl}_{s}, R^{ul}_{s}$ & Atmospheric-loss, link-margin, residual-frequency, PA-EVM, and symbol-rate parameters for both directions \\
 $OH^{dl}_{mac}, OH^{ul}_{mac}, N^{dl}_{sample,max}, N^{ul}_{sample,max}, \tau_{proc}$ & Direction-specific MAC overhead, sample-trace caps, and fixed processing latency \\
 $\{(\eta^{dl}_m, \gamma^{dl}_{req,m}, a^{dl}_m, BER^{dl}_{min,m}, BER^{dl}_{max,m})\}, \{(\eta^{ul}_m, \gamma^{ul}_{req,m}, a^{ul}_m, BER^{ul}_{min,m}, BER^{ul}_{max,m})\}$ & Direction-specific MCS tables for downlink and uplink \\
+$L^{array}_{tag}, L^{comp}_{tag}, \tau^{deadline}, \Delta f^{dl}_{tol}, \Delta f^{ul}_{tol}$ & Explainability-tag thresholds for array degradation, PA compression, scheduling delay, and residual frequency error \\
 \bottomrule
 \end{longtable}
 
@@ -171,6 +177,95 @@ where
   \qquad
   \omega_{\oplus} = 7.2921150 \times 10^{-5} \ \mathrm{rad/s}.
 \end{equation}
+
+\subsection{Solar Ephemeris, Flux, and Eclipse Factor}
+
+Let $JD_k$ be the Julian date at time $t_k$, and let
+\begin{equation}
+  T_k = \frac{JD_k - 2451545.0}{36525}.
+\end{equation}
+
+Using a standard low-order solar ephemeris, define the mean longitude, mean anomaly,
+ecliptic longitude, and obliquity:
+\begin{align}
+  L_k &= \operatorname{mod}\left(280.46 + 36000.771 T_k, 360^\circ \right), \\
+  g_k &= \operatorname{mod}\left(357.528 + 35999.05 T_k, 360^\circ \right), \\
+  \lambda^{\odot}_k
+  &= L_k + 1.915 \sin g_k + 0.020 \sin 2 g_k, \\
+  \varepsilon_k &= 23.4393^\circ - 0.0130^\circ T_k.
+\end{align}
+Angles in this subsection are converted to radians before evaluation in trigonometric
+functions.
+
+The Earth-to-Sun unit vector in ECI is then
+\begin{equation}
+  \hat{s}^{ECI}_k
+  =
+  \begin{bmatrix}
+    \cos \lambda^{\odot}_k \\
+    \cos \varepsilon_k \sin \lambda^{\odot}_k \\
+    \sin \varepsilon_k \sin \lambda^{\odot}_k
+  \end{bmatrix}.
+\end{equation}
+
+Let the Earth-Sun distance in astronomical units be
+\begin{equation}
+  d^{\odot}_{AU,k}
+  =
+  1.00014
+  - 0.01671 \cos g_k
+  - 0.00014 \cos 2 g_k.
+\end{equation}
+
+The instantaneous solar flux is
+\begin{equation}
+  \Phi_{sun,k} = \frac{\Phi_{sun,1AU}}{(d^{\odot}_{AU,k})^2}.
+\end{equation}
+
+If an Earth-fixed solar direction is needed,
+\begin{equation}
+  \hat{s}^{ECEF}_k = R_3(\theta_{g,k}) \hat{s}^{ECI}_k.
+\end{equation}
+
+Define the satellite-to-Sun vector and the Earth-center look direction from the
+satellite as
+\begin{align}
+  \vect{\rho}^{\odot}_k
+  &= d^{\odot}_{AU,k} \cdot \mathrm{AU} \cdot \hat{s}^{ECI}_k - \vect{r}^{ECI}_k, \\
+  \hat{e}_k
+  &= - \frac{\vect{r}^{ECI}_k}{\norm{\vect{r}^{ECI}_k}}, \\
+  \hat{u}^{\odot}_k
+  &= \frac{\vect{\rho}^{\odot}_k}{\norm{\vect{\rho}^{\odot}_k}}.
+\end{align}
+
+The apparent angular separation between the Earth disk and solar disk is
+\begin{equation}
+  \psi_k = \arccos \left( \hat{e}_k \cdot \hat{u}^{\odot}_k \right).
+\end{equation}
+
+The apparent angular radii of Earth and Sun from the satellite are
+\begin{align}
+  \theta^{\oplus}_k
+  &= \arcsin \left( \frac{R_{\oplus}}{\norm{\vect{r}^{ECI}_k}} \right), \\
+  \theta^{\odot}_k
+  &= \arcsin \left( \frac{R_{\odot}}{\norm{\vect{\rho}^{\odot}_k}} \right).
+\end{align}
+
+Use the following first-order penumbra model for solar visibility:
+\begin{equation}
+  S_k
+  =
+  \clip\left(
+    \frac{\psi_k - (\theta^{\oplus}_k - \theta^{\odot}_k)}{2 \theta^{\odot}_k},
+    0,
+    1
+  \right).
+\end{equation}
+
+Thus $S_k = 0$ in umbra, $S_k = 1$ in full sun, and intermediate values represent
+partial solar-disk visibility in penumbra. For the short pass window, assume the
+solar array can track the Sun closely whenever it is visible, so orbital modulation of
+generated solar power enters through $S_k$ and $\Phi_{sun,k}$.
 
 \subsection{Ground-Station ECEF Position}
 
@@ -451,6 +546,11 @@ Model scan loss by
 
 If the phase shifter least-significant bit is $\Delta \phi_{LSB}$ and the random
 phase-error standard deviation is $\sigma_{\phi,therm,k}$, then
+\begin{equation}
+  \sigma_{\phi,therm,k}
+  =
+  k_{\phi,T}\max(0, T^{arr}_k - T^{arr}_{ref}).
+\end{equation}
 \begin{align}
   \sigma^2_{\phi,k}
   &= \frac{\Delta \phi_{LSB}^2}{12} + \sigma_{\phi,therm,k}^2, \\
@@ -459,17 +559,31 @@ phase-error standard deviation is $\sigma_{\phi,therm,k}$, then
    = 4.343 \sigma^2_{\phi,k}.
 \end{align}
 
-Let $L^{arr}_{therm,k}$ denote thermal gain degradation and $L^{arr}_{point,k}$ denote
-residual pointing loss. Then the effective array gain is
+Use a first-order thermal gain penalty for the array:
 \begin{equation}
-  G_{arr,k}
+  L^{arr}_{therm,k}
   =
+  k^{arr}_T \max(0, T^{arr}_k - T^{arr}_{ref}).
+\end{equation}
+
+For the baseline implementation, assume the electronically steered array introduces
+no residual closed-loop pointing error beyond the commanded steering solution:
+\begin{equation}
+  \theta^{arr}_{point,k} = 0,
+  \qquad
+  L^{arr}_{point,k} = 0.
+\end{equation}
+
+Then
+\begin{align}
+  G_{arr,k}
+  &=
   G^{ideal}_{arr,k}
   - L^{scan}_k
   - L^{phase}_k
   - L^{arr}_{therm,k}
   - L^{arr}_{point,k}.
-\end{equation}
+\end{align}
 
 The same electronically steered aperture is used for satellite transmit and receive,
 with optional calibration offsets:
@@ -663,15 +777,21 @@ The generated heat terms are
 
 The sunlight heat term is
 \begin{equation}
-  Q^i_{sun,k} = \alpha_i A_i \Phi_{sun} S_k,
+  Q^i_{sun,k} = \alpha_i A_i \Phi_{sun,k} S_k,
 \end{equation}
-where $S_k \in [0,1]$ is the sun-exposure factor.
+where $S_k$ is the sun-exposure factor derived from the orbital solar-visibility model.
 
 \subsection{Solar, Battery, and Bus Budget}
 
 Solar generation is
 \begin{equation}
-  P^{sol}_k = \eta_{sol} A_{sol} \Phi_{sun} S_k.
+  P^{sol}_k = \eta_{sol} A_{sol} \Phi_{sun,k} S_k.
+\end{equation}
+
+For the baseline report, no active heater or pumped thermal-control actuator model is
+included, so the explicit thermal-control electrical draw is
+\begin{equation}
+  P^{therm}_k = 0.
 \end{equation}
 
 Total electrical load is
@@ -777,6 +897,22 @@ to the downlink from satellite to ground station.
 
 \subsection{Polarization and EIRP}
 
+Because the current scenario configures RHCP on both the satellite and ground terminal,
+use a common unit polarization basis $\hat{e}_{RHCP}$ and take
+\begin{equation}
+  \hat{e}^{sat,tx}_k
+  =
+  \hat{e}^{sat,rx}_k
+  =
+  \hat{e}^{gs,tx}
+  =
+  \hat{e}^{gs,rx}
+  =
+  \hat{e}_{RHCP}.
+\end{equation}
+The general inner-product form is retained so future scenarios can introduce
+cross-polarization mismatch explicitly.
+
 Let the downlink polarization mismatch loss be
 \begin{equation}
   L^{pol,dl}_k
@@ -829,6 +965,13 @@ Ground receive equivalent noise temperature is
   NF^{gs,rx}_k = NF^{gs}_{nom} + \delta NF^{gs}_k,
   \qquad
   T^{eq,dl}_k = 290\left(10^{NF^{gs,rx}_k/10} - 1\right).
+\end{equation}
+
+For the baseline pass, hold the effective antenna noise temperatures constant:
+\begin{equation}
+  T^{ant,gs}_k = T^{ant,gs}_{0},
+  \qquad
+  T^{ant,sat}_k = T^{ant,sat}_{0}.
 \end{equation}
 
 Ground downlink system temperature is
@@ -1274,6 +1417,7 @@ To keep formulas reviewable, the implementation should mirror this document with
 modules in one simulation layer:
 \begin{enumerate}
   \item \texttt{simulation/geometry}: coordinate transforms, range, Doppler, visibility, pass window.
+  \item \texttt{simulation/sun}: solar ephemeris, Earth shadowing, penumbra exposure, solar flux.
   \item \texttt{simulation/hardware}: steering, phased array, RF chain, PA, oscillator,
         thermal, power, and compute.
   \item \texttt{simulation/link}: direction-specific EIRP, path loss, noise, EVM,

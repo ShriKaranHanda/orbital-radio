@@ -8,6 +8,7 @@ import {
 } from "../state";
 import { getGroundStationEcef } from "../src/lib/ground-station";
 import { deriveGroundStationGeometryState } from "../src/lib/simulation/geometry";
+import { deriveSunState, getSunEphemeris } from "../src/lib/simulation/sun";
 
 const TEST_RADIO = {
   downlink: {
@@ -128,6 +129,50 @@ describe("simulation geometry", () => {
   });
 });
 
+describe("simulation sun", () => {
+  test("returns full solar exposure for a satellite on the sunward side of Earth", () => {
+    const currentUnixMs = Date.UTC(2026, 3, 12, 4, 15, 5);
+    const { directionEciUnit } = getSunEphemeris(currentUnixMs);
+    const satellite = createSatelliteFrameAtEciPosition(
+      scaleVector(
+        directionEciUnit,
+        PHYSICAL_CONSTANTS.earthModel.meanRadiusM + 550_000,
+      ),
+    );
+
+    const sun = deriveSunState(currentUnixMs, satellite, PHYSICAL_CONSTANTS);
+
+    expect(sun.sunExposureFactor).toBeCloseTo(1, 9);
+    expect(sun.solarFluxWPerM2).toBeGreaterThan(1_300);
+  });
+
+  test("returns zero solar exposure for a satellite in Earth's umbra", () => {
+    const currentUnixMs = Date.UTC(2026, 3, 12, 4, 15, 5);
+    const { directionEciUnit } = getSunEphemeris(currentUnixMs);
+    const satellite = createSatelliteFrameAtEciPosition(
+      scaleVector(
+        directionEciUnit,
+        -(PHYSICAL_CONSTANTS.earthModel.meanRadiusM + 550_000),
+      ),
+    );
+
+    const sun = deriveSunState(currentUnixMs, satellite, PHYSICAL_CONSTANTS);
+
+    expect(sun.sunExposureFactor).toBe(0);
+  });
+
+  test("precomputes bounded sun exposure factors for the default simulation frames", () => {
+    expect(
+      DEFAULT_SIMULATION_STATE.frames.every(
+        (frame) =>
+          frame.sun.sunExposureFactor >= 0 &&
+          frame.sun.sunExposureFactor <= 1 &&
+          Number.isFinite(frame.sun.solarFluxWPerM2),
+      ),
+    ).toBe(true);
+  });
+});
+
 function createGroundStation(
   overrides: Partial<
     Pick<GroundStationConfig, "minElevationDeg" | "horizonMask">
@@ -173,6 +218,15 @@ function createSatelliteFrameFromLook(
     velocityEciMps: scaleVector(relativeUnitVector, rangeRateMps),
     positionEcefM: addVectors(groundStationEcef, relativeVectorEcef),
     velocityEcefMps: scaleVector(relativeUnitVector, rangeRateMps),
+  };
+}
+
+function createSatelliteFrameAtEciPosition(positionEciM: Cartesian3): SatelliteFrameState {
+  return {
+    positionEciM,
+    velocityEciMps: { x: 0, y: 0, z: 0 },
+    positionEcefM: positionEciM,
+    velocityEcefMps: { x: 0, y: 0, z: 0 },
   };
 }
 
