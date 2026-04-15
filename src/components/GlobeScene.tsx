@@ -368,10 +368,6 @@ export function GlobeScene({
 
     const stationWorldPosition = new Vector3();
     const satelliteWorldPosition = new Vector3();
-    stationMarker.getWorldPosition(stationWorldPosition);
-    camera.position.copy(
-      stationWorldPosition.clone().normalize().multiplyScalar(DEFAULT_CAMERA_DISTANCE),
-    );
 
     const handles: SceneHandles = {
       camera,
@@ -397,6 +393,12 @@ export function GlobeScene({
       groundStation,
       currentFrameRef.current,
     );
+    stationMarker.getWorldPosition(stationWorldPosition);
+    controls.target.copy(stationWorldPosition);
+    camera.position.copy(
+      stationWorldPosition.clone().normalize().multiplyScalar(DEFAULT_CAMERA_DISTANCE),
+    );
+    controls.update();
 
     let isHoveringStation = false;
     let isHoveringSatellite = false;
