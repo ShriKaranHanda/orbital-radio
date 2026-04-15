@@ -3,6 +3,15 @@ import { X } from "lucide-react";
 import { formatCoordinate } from "../lib/geo";
 import type { GroundStation } from "../types";
 import {
+  formatAzimuth,
+  formatDegrees,
+  formatDistanceMeters,
+  formatFrequencyHz,
+  formatSignedDegrees,
+  formatSpeedMetersPerSecond,
+  formatTimestamp,
+} from "./formatters";
+import {
   Accordion,
   AccordionContent,
   AccordionItem,
@@ -40,24 +49,16 @@ export function GroundStationCard({
       </CardHeader>
       <CardContent>
         <div className="metric-grid">
-          <Metric
-            label="Look azimuth"
-            value={formatDegrees(derivedState.azimuthDeg)}
-          />
-          <Metric
-            label="Look elevation"
-            value={formatDegrees(derivedState.elevationDeg)}
-          />
+          <Metric label="Look azimuth" value={formatDegrees(derivedState.azimuthDeg)} />
+          <Metric label="Look elevation" value={formatDegrees(derivedState.elevationDeg)} />
           <Metric label="Slant range" value={formatDistanceMeters(derivedState.slantRangeM)} />
-          <Metric
-            label="Visibility"
-            value={derivedState.clearsOperationalMask ? "Clear" : "Masked"}
-          />
+          <Metric label="Range rate" value={formatSpeedMetersPerSecond(derivedState.rangeRateMps)} />
+          <Metric label="Pass state" value={derivedState.inPass ? "In pass" : "Out of pass"} />
         </div>
 
         <Accordion
           type="multiple"
-          defaultValue={["location", "visibility", "antenna", "geometry"]}
+          defaultValue={["location", "visibility", "pass", "antenna", "geometry"]}
           className="accordion"
         >
           <AccordionItem value="location">
@@ -93,10 +94,27 @@ export function GroundStationCard({
                   label="Clears mask"
                   value={derivedState.clearsOperationalMask ? "Yes" : "No"}
                 />
+                <Detail label="In pass" value={derivedState.inPass ? "Yes" : "No"} />
                 <Detail
                   label="Mask samples"
                   value={String(station.horizonMask.length)}
                 />
+              </dl>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="pass">
+            <AccordionTrigger>Pass Window</AccordionTrigger>
+            <AccordionContent>
+              <dl className="detail-list">
+                <Detail label="kIn" value={formatFrameIndex(derivedState.kIn)} />
+                <Detail label="kApex" value={formatFrameIndex(derivedState.kApex)} />
+                <Detail label="kOut" value={formatFrameIndex(derivedState.kOut)} />
+                <Detail
+                  label="Pass duration"
+                  value={formatDurationSeconds(derivedState.passDurationSeconds)}
+                />
+                <Detail label="Frame status" value={derivedState.inPass ? "Within window" : "Outside window"} />
               </dl>
             </AccordionContent>
           </AccordionItem>
@@ -155,6 +173,18 @@ export function GroundStationCard({
                   value={formatDistanceMeters(derivedState.slantRangeM)}
                 />
                 <Detail
+                  label="Range rate"
+                  value={formatSpeedMetersPerSecond(derivedState.rangeRateMps)}
+                />
+                <Detail
+                  label="Downlink Doppler"
+                  value={formatFrequencyHz(derivedState.downlinkDopplerShiftHz)}
+                />
+                <Detail
+                  label="Uplink Doppler"
+                  value={formatFrequencyHz(derivedState.uplinkDopplerShiftHz)}
+                />
+                <Detail
                   label="Azimuth error"
                   value={formatSignedDegrees(derivedState.pointingAzimuthErrorDeg)}
                 />
@@ -196,31 +226,10 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
-function formatDegrees(value: number) {
-  return `${value.toFixed(1)}°`;
+function formatFrameIndex(value: number | null) {
+  return value === null ? "N/A" : String(value);
 }
 
-function formatAzimuth(value: number) {
-  return `${value.toFixed(1)}° from north`;
-}
-
-function formatSignedDegrees(value: number) {
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(1)}°`;
-}
-
-function formatDistanceMeters(value: number) {
-  return `${(value / 1_000).toFixed(1)} km`;
-}
-
-function formatTimestamp(unixMs: number) {
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-    hour12: false,
-  }).format(unixMs);
+function formatDurationSeconds(value: number) {
+  return `${value.toFixed(0)} s`;
 }
