@@ -37,6 +37,7 @@ export function SimulationTimeline({
   const pendingFrame = frames[pendingFrameIndex];
   const visualFrame = frames[visualFrameIndex];
   const faultWindows = useMemo(() => buildFaultWindows(frames), [frames]);
+  const passMarkers = useMemo(() => buildPassMarkers(frames), [frames]);
 
   return (
     <section className="timeline-panel" aria-label="Simulation timeline panel">
@@ -85,6 +86,30 @@ export function SimulationTimeline({
 
       <div className="timeline-track-shell">
         <TooltipProvider>
+          <div className="timeline-pass-markers" aria-label="Pass timeline markers">
+            {passMarkers.map((marker) => (
+              <Tooltip key={marker.key}>
+                <TooltipTrigger asChild>
+                  <button
+                    className="timeline-pass-marker"
+                    type="button"
+                    style={{ left: `${marker.positionPercent}%` }}
+                    aria-label={`${marker.label}, ${formatTimestamp(marker.unixMs)}`}
+                  />
+                </TooltipTrigger>
+                <TooltipContent
+                  side="top"
+                  align="center"
+                  sideOffset={6}
+                  className="timeline-pass-tooltip"
+                >
+                  <strong>{marker.label}</strong>
+                  <span>{formatTimestamp(marker.unixMs)}</span>
+                  <span>Frame {marker.frameIndex}</span>
+                </TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
           <div
             className="timeline-fault-track"
             aria-label="Fault timeline overlay"
@@ -98,7 +123,6 @@ export function SimulationTimeline({
                     style={{
                       left: `${window.startPercent}%`,
                       width: `${window.widthPercent}%`,
-                      top: `${window.lane * 16}px`,
                     }}
                     tabIndex={0}
                     aria-label={`${window.label}, ${formatTimestamp(
@@ -167,8 +191,15 @@ type FaultWindow = {
   endUnixMs: number;
   startPercent: number;
   widthPercent: number;
-  lane: number;
   effectEntries: Array<[string, number]>;
+};
+
+type PassMarker = {
+  key: string;
+  label: string;
+  frameIndex: number;
+  unixMs: number;
+  positionPercent: number;
 };
 
 function buildFaultWindows(frames: readonly SimulationFrame[]): FaultWindow[] {
@@ -178,10 +209,10 @@ function buildFaultWindows(frames: readonly SimulationFrame[]): FaultWindow[] {
 
   const frameStepMs =
     frames.length > 1 ? frames[1].currentUnixMs - frames[0].currentUnixMs : 1_000;
-  const windows: Array<Omit<FaultWindow, "startPercent" | "widthPercent" | "lane">> = [];
+  const windows: Array<Omit<FaultWindow, "startPercent" | "widthPercent">> = [];
   const activeWindows = new Map<
     string,
-    Omit<FaultWindow, "startPercent" | "widthPercent" | "lane">
+    Omit<FaultWindow, "startPercent" | "widthPercent">
   >();
 
   for (const frame of frames) {
@@ -226,18 +257,8 @@ function buildFaultWindows(frames: readonly SimulationFrame[]): FaultWindow[] {
   const sortedWindows = windows.sort(
     (left, right) => left.startFrameIndex - right.startFrameIndex,
   );
-  const laneEndFrames: number[] = [];
 
   return sortedWindows.map((window) => {
-    let lane = 0;
-    while (
-      lane < laneEndFrames.length &&
-      window.startFrameIndex <= laneEndFrames[lane]
-    ) {
-      lane += 1;
-    }
-    laneEndFrames[lane] = window.endFrameIndex;
-
     const startPercent = (window.startFrameIndex / totalFrameCount) * 100;
     const widthPercent = Math.max(
       ((window.endFrameIndex - window.startFrameIndex + 1) / totalFrameCount) * 100,
@@ -248,9 +269,32 @@ function buildFaultWindows(frames: readonly SimulationFrame[]): FaultWindow[] {
       ...window,
       startPercent,
       widthPercent,
-      lane,
     };
   });
+}
+
+function buildPassMarkers(frames: readonly SimulationFrame[]): PassMarker[] {
+  if (frames.length === 0) {
+    return [];
+  }
+
+  const totalFrameCount = Math.max(1, frames.length - 1);
+  const { kIn, kApex, kOut } = frames[0].groundStation;
+  const markerDefinitions = [
+    { label: "Pass ingress", frameIndex: kIn },
+    { label: "Pass apex", frameIndex: kApex },
+    { label: "Pass egress", frameIndex: kOut },
+  ];
+
+  return markerDefinitions
+    .filter((marker): marker is { label: string; frameIndex: number } => marker.frameIndex !== null)
+    .map((marker) => ({
+      key: `pass-marker-${marker.label}-${marker.frameIndex}`,
+      label: marker.label,
+      frameIndex: marker.frameIndex,
+      unixMs: frames[marker.frameIndex].currentUnixMs,
+      positionPercent: (marker.frameIndex / totalFrameCount) * 100,
+    }));
 }
 
 function formatTimestamp(unixMs: number) {
