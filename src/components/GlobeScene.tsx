@@ -3,6 +3,7 @@ import {
   AmbientLight,
   BackSide,
   BufferGeometry,
+  AdditiveBlending,
   CanvasTexture,
   Color,
   DirectionalLight,
@@ -98,9 +99,9 @@ const DEFAULT_ROTATE_SPEED = 0.55;
 const ZOOM_ANIMATION_MS = 650;
 const GROUND_STATION_ELEVATION_ARC_RADIUS = 0.15;
 const SATELLITE_MARKER_RADIUS = 0.065;
-const SATELLITE_GLOW_RADIUS = 0.12;
+const SATELLITE_GLOW_RADIUS = 0.19;
 const GROUND_STATION_MARKER_RADIUS = SATELLITE_MARKER_RADIUS;
-const GROUND_STATION_PULSE_RADIUS = SATELLITE_GLOW_RADIUS;
+const GROUND_STATION_PULSE_RADIUS = 0.19;
 const DEFAULT_ROTATION_CENTER = new Vector3(0, 0, 0);
 
 export function GlobeScene({
@@ -231,7 +232,12 @@ export function GlobeScene({
     const stationLocalPosition = getGroundStationLocalVector(groundStation, stationRadius);
     const stationMarker = new Mesh(
       new SphereGeometry(GROUND_STATION_MARKER_RADIUS, 32, 32),
-      new MeshBasicMaterial({ color: "#38bdf8" }),
+      new MeshPhongMaterial({
+        color: "#1e40af",
+        emissive: "#2563eb",
+        emissiveIntensity: 0.55,
+        shininess: 120,
+      }),
     );
     stationMarker.position.set(
       stationLocalPosition.x,
@@ -244,10 +250,11 @@ export function GlobeScene({
     const stationPulse = new Mesh(
       new SphereGeometry(GROUND_STATION_PULSE_RADIUS, 32, 32),
       new MeshBasicMaterial({
-        color: "#60a5fa",
+        color: "#93c5fd",
         transparent: true,
-        opacity: 0.26,
+        opacity: 0.2,
         depthWrite: false,
+        blending: AdditiveBlending,
       }),
     );
     stationPulse.position.copy(stationMarker.position);
@@ -339,7 +346,12 @@ export function GlobeScene({
 
     const satelliteMarker = new Mesh(
       new SphereGeometry(SATELLITE_MARKER_RADIUS, 32, 32),
-      new MeshBasicMaterial({ color: "#f59e0b" }),
+      new MeshPhongMaterial({
+        color: "#b45309",
+        emissive: "#f59e0b",
+        emissiveIntensity: 0.48,
+        shininess: 120,
+      }),
     );
     inertialGroup.add(satelliteMarker);
 
@@ -350,6 +362,7 @@ export function GlobeScene({
         transparent: true,
         opacity: 0.2,
         depthWrite: false,
+        blending: AdditiveBlending,
       }),
     );
     satelliteGlow.renderOrder = 2;
@@ -628,6 +641,10 @@ export function GlobeScene({
       frameId = requestAnimationFrame(render);
       stationMarker.scale.setScalar(isHoveringStation ? 1.28 : 1);
       satelliteMarker.scale.setScalar(isHoveringSatellite ? 1.28 : 1);
+      stationPulse.scale.setScalar(isHoveringStation ? 1.06 : 1);
+      satelliteGlow.scale.setScalar(isHoveringSatellite ? 1.06 : 1);
+      (stationPulse.material as MeshBasicMaterial).opacity = isHoveringStation ? 0.28 : 0.2;
+      (satelliteGlow.material as MeshBasicMaterial).opacity = isHoveringSatellite ? 0.28 : 0.2;
       syncSelectionState();
 
       if (zoomAnimation) {
@@ -735,7 +752,6 @@ function applyFrameToScene(
 
   handles.earthGroup.rotation.y = getEarthRotationRad(frame.currentUnixMs);
   handles.cloudLayer.rotation.y = getCloudRotationRad(frame.currentUnixMs);
-  handles.stationPulse.scale.setScalar(1);
   handles.inertialGroup.rotation.y = 0;
   handles.satelliteMarker.position.set(
     satelliteInertialLocalPosition.x,
@@ -743,7 +759,6 @@ function applyFrameToScene(
     satelliteInertialLocalPosition.z,
   );
   handles.satelliteGlow.position.copy(handles.satelliteMarker.position);
-  handles.satelliteGlow.scale.setScalar(1);
   const stationPosition = handles.stationMarker.position;
   const stationRadius = getGroundStationAnchorRadius(groundStation, physicalConstants);
   const antennaDirection = getGroundStationAntennaDirectionLocalVector(

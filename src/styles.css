@@ -144,6 +144,61 @@ button {
   z-index: 2;
 }
 
+.timeline-pass-markers {
+  position: absolute;
+  top: 18px;
+  right: 8px;
+  left: 8px;
+  height: 18px;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.timeline-pass-marker {
+  all: unset;
+  position: absolute;
+  top: 0;
+  width: 22px;
+  height: 100%;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  cursor: help;
+  display: block;
+}
+
+.timeline-pass-marker-line {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: linear-gradient(180deg, #4ade80 0%, #22c55e 100%);
+  border-radius: 999px;
+  box-shadow: 0 0 10px rgba(74, 222, 128, 0.75);
+}
+
+.timeline-pass-marker-tooltip {
+  z-index: 60;
+  min-width: 120px;
+  padding: 6px 8px;
+  color: #dcfce7;
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: center;
+  background: rgba(5, 46, 22, 0.92);
+  border: 1px solid rgba(74, 222, 128, 0.55);
+  border-radius: 6px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+
+.timeline-pass-marker:focus-visible .timeline-pass-marker-line {
+  width: 3px;
+  box-shadow:
+    0 0 12px rgba(74, 222, 128, 0.95),
+    0 0 0 2px rgba(74, 222, 128, 0.35);
+}
+
 .timeline-fault-window {
   position: absolute;
   min-width: 3px;
