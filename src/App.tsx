@@ -18,7 +18,7 @@ declare global {
   }
 }
 
-const TIMELINE_THROTTLE_MS = 100;
+const TIMELINE_THROTTLE_MS = 10;
 
 export function App() {
   const simulationState = DEFAULT_SIMULATION_STATE;
