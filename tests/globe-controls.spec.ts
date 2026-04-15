@@ -79,6 +79,42 @@ test("timeline scrub throttles renders and commits the final frame", async ({ pa
   expect(distance(initial.satelliteWorldPosition, final.satelliteWorldPosition)).toBeGreaterThan(0.05);
 });
 
+test("timeline playback and frame-step controls respond correctly", async ({ page }) => {
+  await openScene(page);
+
+  const playButton = page.getByRole("button", { name: /Play timeline|Pause timeline/ });
+  const nextButton = page.getByRole("button", { name: "Next frame" });
+  const previousButton = page.getByRole("button", { name: "Previous frame" });
+
+  const initialFrame = await page.evaluate(() => window.__simulationDebug!.getPendingFrameIndex());
+
+  await playButton.click();
+  await expect
+    .poll(() => page.evaluate(() => window.__simulationDebug!.getPendingFrameIndex()), {
+      timeout: 600,
+    })
+    .toBeGreaterThan(initialFrame);
+
+  await page.getByRole("button", { name: "Pause timeline" }).click();
+  await expect(page.getByRole("button", { name: "Play timeline" })).toBeVisible();
+  const pausedFrame = await page.evaluate(() => window.__simulationDebug!.getPendingFrameIndex());
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.__simulationDebug!.getPendingFrameIndex())).toBe(
+    pausedFrame,
+  );
+
+  await nextButton.click();
+  await expect
+    .poll(() => page.evaluate(() => window.__simulationDebug!.getPendingFrameIndex()))
+    .toBe(pausedFrame + 1);
+  const nextFrame = await page.evaluate(() => window.__simulationDebug!.getPendingFrameIndex());
+
+  await previousButton.click();
+  await expect
+    .poll(() => page.evaluate(() => window.__simulationDebug!.getPendingFrameIndex()))
+    .toBe(nextFrame - 1);
+});
+
 test("globe remains draggable before selection and after deselection", async ({ page }) => {
   await page.addInitScript(() => {
     window.__globeTestAnimationMs = 80;
