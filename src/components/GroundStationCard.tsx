@@ -2,6 +2,9 @@ import type {
   GroundStationDerivedState,
   SimulationHardwareState,
   SimulationLinkState,
+  SimulationTrafficDirectionState,
+  SimulationTrafficState,
+  TrafficTraceSample,
 } from "../../state";
 import { X } from "lucide-react";
 import { formatCoordinate } from "../lib/geo";
@@ -14,9 +17,11 @@ import {
   formatDistanceMeters,
   formatFrequencyHz,
   formatPacketRate,
+  formatPacketCount,
   formatPercent,
   formatProbability,
   formatPowerDbw,
+  formatSeconds,
   formatSignedDegrees,
   formatSpeedMetersPerSecond,
   formatTimestamp,
@@ -41,6 +46,7 @@ type GroundStationCardProps = {
   derivedState: GroundStationDerivedState;
   hardwareState: SimulationHardwareState;
   linkState: SimulationLinkState;
+  trafficState: SimulationTrafficState;
   onClose: () => void;
 };
 
@@ -50,6 +56,7 @@ export function GroundStationCard({
   derivedState,
   hardwareState,
   linkState,
+  trafficState,
   onClose,
 }: GroundStationCardProps) {
   return (
@@ -74,6 +81,10 @@ export function GroundStationCard({
           <Metric label="UL eff SNR" value={formatDb(linkState.uplink.effectiveSnrDb)} />
           <Metric label="DL MCS" value={formatMcs(linkState.downlink)} />
           <Metric label="UL MCS" value={formatMcs(linkState.uplink)} />
+          <Metric label="DL goodput" value={formatBitRate(trafficState.downlink.goodputBps)} />
+          <Metric label="UL goodput" value={formatBitRate(trafficState.uplink.goodputBps)} />
+          <Metric label="DL loss" value={formatPercent(trafficState.downlink.packetLossFraction)} />
+          <Metric label="UL loss" value={formatPercent(trafficState.uplink.packetLossFraction)} />
           <Metric label="Pass state" value={derivedState.inPass ? "In pass" : "Out of pass"} />
         </div>
 
@@ -87,6 +98,8 @@ export function GroundStationCard({
             "geometry",
             "terminal",
             "link",
+            "traffic",
+            "trace",
           ]}
           className="accordion"
         >
@@ -319,9 +332,176 @@ export function GroundStationCard({
               </dl>
             </AccordionContent>
           </AccordionItem>
+
+          <AccordionItem value="traffic">
+            <AccordionTrigger>Traffic And Queues</AccordionTrigger>
+            <AccordionContent>
+              <TrafficDirectionDetails
+                label="Downlink"
+                direction={trafficState.downlink}
+              />
+              <TrafficDirectionDetails
+                label="Uplink"
+                direction={trafficState.uplink}
+              />
+              <p className="detail-note">
+                Queue delay is computed from backlog at the start of this second. Each sampled
+                packet represents a bounded deterministic slice of the offered load.
+              </p>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="trace">
+            <AccordionTrigger>Packet Trace</AccordionTrigger>
+            <AccordionContent>
+              <PacketTraceSection
+                label="Downlink"
+                samples={trafficState.downlink.samples}
+                meanLatencySeconds={trafficState.downlink.meanLatencySeconds}
+              />
+              <PacketTraceSection
+                label="Uplink"
+                samples={trafficState.uplink.samples}
+                meanLatencySeconds={trafficState.uplink.meanLatencySeconds}
+              />
+            </AccordionContent>
+          </AccordionItem>
         </Accordion>
       </CardContent>
     </Card>
+  );
+}
+
+function TrafficDirectionDetails({
+  label,
+  direction,
+}: {
+  label: string;
+  direction: SimulationTrafficDirectionState;
+}) {
+  return (
+    <>
+      <p className="trace-heading">{label}</p>
+      <dl className="detail-list">
+        <Detail label="Offered load" value={`${direction.offeredLoadMbps.toFixed(1)} Mbps`} />
+        <Detail
+          label="Packet size"
+          value={`${direction.packetSizeBytes.toLocaleString()} bytes`}
+        />
+        <Detail
+          label="Offered rate"
+          value={formatPacketRate(direction.offeredPacketRatePacketsPerSecond)}
+        />
+        <Detail
+          label="Service rate"
+          value={formatPacketRate(direction.serviceRatePacketsPerSecond)}
+        />
+        <Detail
+          label="Queue backlog"
+          value={formatPacketCount(direction.queueBacklogPackets)}
+        />
+        <Detail
+          label="Queue delay"
+          value={formatNullableSeconds(direction.queueDelaySeconds)}
+        />
+        <Detail
+          label="Propagation delay"
+          value={formatSeconds(direction.propagationDelaySeconds)}
+        />
+        <Detail
+          label="Retransmission wait"
+          value={formatSeconds(direction.retransmissionDelaySeconds)}
+        />
+        <Detail label="Samples" value={String(direction.sampleCount)} />
+        <Detail
+          label="Packets per sample"
+          value={formatPacketCount(direction.sampleWeightPackets)}
+        />
+        <Detail
+          label="Packet loss"
+          value={formatPercent(direction.packetLossFraction)}
+        />
+        <Detail
+          label="Retransmissions"
+          value={formatPacketCount(direction.weightedRetransmissions)}
+        />
+        <Detail label="Goodput" value={formatBitRate(direction.goodputBps)} />
+        <Detail
+          label="Mean latency"
+          value={formatNullableSeconds(direction.meanLatencySeconds)}
+        />
+        <Detail
+          label="Jitter"
+          value={formatNullableSeconds(direction.jitterSeconds)}
+        />
+        <Detail label="Max attempts" value={String(direction.maxAttempts)} />
+      </dl>
+    </>
+  );
+}
+
+function PacketTraceSection({
+  label,
+  samples,
+  meanLatencySeconds,
+}: {
+  label: string;
+  samples: readonly TrafficTraceSample[];
+  meanLatencySeconds: number | null;
+}) {
+  return (
+    <section className="trace-section" aria-label={`${label} packet traces`}>
+      <div className="trace-section-header">
+        <p className="trace-heading">{label}</p>
+        <span className="trace-summary">
+          Mean latency {formatNullableSeconds(meanLatencySeconds)}
+        </span>
+      </div>
+      {samples.length === 0 ? (
+        <p className="detail-note">No offered packets in this second.</p>
+      ) : (
+        <div className="trace-list">
+          {samples.map((sample) => (
+            <article
+              key={sample.id}
+              className={`trace-row${sample.dropped ? " is-drop" : ""}`}
+            >
+              <div className="trace-row-header">
+                <strong>{formatTimestamp(sample.timestampUnixMs)}</strong>
+                <span className={`trace-outcome${sample.dropped ? " is-drop" : ""}`}>
+                  {sample.dropped ? "Dropped" : "Delivered"}
+                </span>
+              </div>
+              <div className="trace-meta">
+                <span>{sample.selectedMcsLabel ?? "Outage"}</span>
+                <span>{formatPacketCount(sample.representedPackets)} pkts</span>
+                <span>
+                  {sample.retransmissions > 0
+                    ? `Retx ${sample.retransmissions}`
+                    : "First try"}
+                </span>
+                <span>Attempts {sample.attempts}</span>
+                <span>Latency {formatNullableSeconds(sample.latencySeconds)}</span>
+                <span>
+                  Delta {formatSignedSeconds(sample.latencyJitterSeconds)}
+                </span>
+              </div>
+              <div className="trace-tags">
+                {sample.reasonTags.length > 0 ? (
+                  sample.reasonTags.map((tag) => (
+                    <span key={`${sample.id}-${tag}`} className="trace-tag">
+                      {formatTraceReasonTag(tag)}
+                    </span>
+                  ))
+                ) : (
+                  <span className="trace-tag">clean</span>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -353,4 +533,21 @@ function formatDurationSeconds(value: number) {
 
 function formatMcs(direction: SimulationLinkState["downlink"]) {
   return direction.selectedMcs.label ?? "Outage";
+}
+
+function formatNullableSeconds(value: number | null) {
+  return value === null ? "Outage" : formatSeconds(value);
+}
+
+function formatSignedSeconds(value: number | null) {
+  if (value === null) {
+    return "N/A";
+  }
+
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${formatSeconds(Math.abs(value))}`;
+}
+
+function formatTraceReasonTag(value: TrafficTraceSample["reasonTags"][number]) {
+  return value.replaceAll("_", " ");
 }

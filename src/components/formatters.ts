@@ -86,6 +86,12 @@ export function formatPacketRate(value: number) {
   return `${value.toFixed(1)} pps`;
 }
 
+export function formatPacketCount(value: number) {
+  return value.toLocaleString("en-US", {
+    maximumFractionDigits: value >= 100 ? 0 : 1,
+  });
+}
+
 export function formatPercent(value: number) {
   return `${(value * 100).toFixed(1)}%`;
 }

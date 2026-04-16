@@ -6,6 +6,7 @@ import type {
   SimulationLinkDirectionState,
   SimulationLinkState,
 } from "../../../state";
+import { getPacketBits, resolveTrafficDirectionConfig } from "./traffic-config";
 
 const DEG_TO_RAD = Math.PI / 180;
 const MIN_LINEAR = 1e-30;
@@ -230,7 +231,8 @@ function deriveDownlinkState(
   hardware: SimulationHardwareState,
 ): SimulationLinkDirectionState {
   const constants = LINK_MODEL_CONSTANTS.downlink;
-  const packetBits = config.traffic.packetSizeBytes * 8;
+  const traffic = resolveTrafficDirectionConfig(config.traffic, "downlink");
+  const packetBits = getPacketBits(traffic);
   const polarizationLossDb = getPolarizationLossDb(
     config.groundStation.antenna.polarization,
     config.groundStation.antenna.polarization,
@@ -336,7 +338,8 @@ function deriveUplinkState(
   hardware: SimulationHardwareState,
 ): SimulationLinkDirectionState {
   const constants = LINK_MODEL_CONSTANTS.uplink;
-  const packetBits = config.traffic.packetSizeBytes * 8;
+  const traffic = resolveTrafficDirectionConfig(config.traffic, "uplink");
+  const packetBits = getPacketBits(traffic);
   const polarizationLossDb = getPolarizationLossDb(
     config.groundStation.antenna.polarization,
     config.groundStation.antenna.polarization,
