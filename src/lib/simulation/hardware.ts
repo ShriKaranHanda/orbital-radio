@@ -13,6 +13,10 @@ import type {
   SimulationConfig,
   SimulationHardwareState,
 } from "../../../state";
+import {
+  getOfferedPacketRatePacketsPerSecond,
+  resolveTrafficDirectionConfig,
+} from "./traffic-config";
 
 const DEG_TO_RAD = Math.PI / 180;
 const RAD_TO_DEG = 180 / Math.PI;
@@ -312,9 +316,13 @@ export function buildHardwareStates(
   nominalConstants: HardwareNominalConstants,
 ): SimulationHardwareState[] {
   const groundStationEcef = getGroundStationEcef(config.groundStation, physicalConstants);
-  const offeredPacketRatePerDirection =
-    (config.traffic.offeredLoadMbps * 1_000_000) /
-    (8 * config.traffic.packetSizeBytes);
+  const downlinkTraffic = resolveTrafficDirectionConfig(config.traffic, "downlink");
+  const uplinkTraffic = resolveTrafficDirectionConfig(config.traffic, "uplink");
+  const offeredPayloadBytesPerSecond =
+    getOfferedPacketRatePacketsPerSecond(downlinkTraffic) *
+      downlinkTraffic.packetSizeBytes +
+    getOfferedPacketRatePacketsPerSecond(uplinkTraffic) *
+      uplinkTraffic.packetSizeBytes;
   let dynamicState = getInitialDynamicHardwareState(HARDWARE_MODEL_CONSTANTS);
 
   return frames.map((frame) => {
@@ -351,8 +359,7 @@ export function buildHardwareStates(
       activeFaults.length,
       phasedArray.activeElementCount,
       steering.linkEnabled,
-      offeredPacketRatePerDirection,
-      config.traffic.packetSizeBytes,
+      offeredPayloadBytesPerSecond,
       HARDWARE_MODEL_CONSTANTS,
       faultAggregate,
     );
@@ -650,21 +657,18 @@ function deriveComputeState(
   activeFaultCount: number,
   activeElementCount: number,
   linkEnabled: boolean,
-  offeredPacketRatePerDirection: number,
-  packetSizeBytes: number,
+  offeredPayloadBytesPerSecond: number,
   constants: HardwareModelConstants,
   faultAggregate: FaultAggregate,
 ) {
   const visibilityFactor = linkEnabled ? 1 : 0;
   const modemDemandUnits =
-    constants.compute.modemDemandPerByte *
-    offeredPacketRatePerDirection *
-    packetSizeBytes;
+    constants.compute.modemDemandPerByte * offeredPayloadBytesPerSecond;
   const demandUnits =
     constants.compute.idleDemandUnits +
     constants.compute.beamDemandPerElement * activeElementCount * visibilityFactor +
     constants.compute.dopplerDemandUnits * visibilityFactor +
-    modemDemandUnits * 2 +
+    modemDemandUnits +
     constants.compute.telemetryDemandPerFault * activeFaultCount +
     faultAggregate.computeLoadUnits;
   const utilization = clamp(

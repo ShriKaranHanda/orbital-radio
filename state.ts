@@ -86,6 +86,9 @@ export type TrafficConfig = {
   packetSizeBytes: number;
   maxRetransmissions: number;
   retransmissionDelayMs: number;
+  maxSamplePacketsPerSecond?: number;
+  downlink?: Partial<Omit<TrafficConfig, "downlink" | "uplink">>;
+  uplink?: Partial<Omit<TrafficConfig, "downlink" | "uplink">>;
 };
 
 export type ScenarioConfig = {
@@ -226,6 +229,7 @@ export type SimulationFrame = {
   groundStation: GroundStationDerivedState;
   hardware: SimulationHardwareState;
   link: SimulationLinkState;
+  traffic: SimulationTrafficState;
   sun: SunDerivedState;
 };
 
@@ -411,6 +415,58 @@ export type SimulationLinkState = {
   uplink: SimulationLinkDirectionState;
 };
 
+export type TrafficDirection = "downlink" | "uplink";
+
+export type TrafficTraceReasonTag =
+  | "low_snr"
+  | "array_scan_loss"
+  | "field_of_regard"
+  | "freq_error"
+  | "pa_backoff"
+  | "thermal_throttle"
+  | "compute_overload"
+  | "power_limited";
+
+export type TrafficTraceSample = {
+  id: string;
+  direction: TrafficDirection;
+  sampleIndex: number;
+  timestampUnixMs: number;
+  representedPackets: number;
+  attempts: number;
+  retransmissions: number;
+  dropped: boolean;
+  latencySeconds: number | null;
+  latencyJitterSeconds: number | null;
+  selectedMcsLabel: string | null;
+  reasonTags: readonly TrafficTraceReasonTag[];
+};
+
+export type SimulationTrafficDirectionState = {
+  offeredLoadMbps: number;
+  packetSizeBytes: number;
+  offeredPacketRatePacketsPerSecond: number;
+  serviceRatePacketsPerSecond: number;
+  queueBacklogPackets: number;
+  queueDelaySeconds: number | null;
+  propagationDelaySeconds: number;
+  retransmissionDelaySeconds: number;
+  maxAttempts: number;
+  sampleCount: number;
+  sampleWeightPackets: number;
+  packetLossFraction: number;
+  weightedRetransmissions: number;
+  goodputBps: number;
+  meanLatencySeconds: number | null;
+  jitterSeconds: number | null;
+  samples: readonly TrafficTraceSample[];
+};
+
+export type SimulationTrafficState = {
+  downlink: SimulationTrafficDirectionState;
+  uplink: SimulationTrafficDirectionState;
+};
+
 export const GROUND_STATION_STEERING_LIMITS = {
   maxAzimuthRateDegPerSecond: 1.2,
   maxElevationRateDegPerSecond: 1.2,
@@ -581,6 +637,7 @@ export const DEFAULT_SIMULATION_CONFIG: SimulationConfig = {
     packetSizeBytes: 1200,
     maxRetransmissions: 3,
     retransmissionDelayMs: 100,
+    maxSamplePacketsPerSecond: 16,
   },
   scenario: {
     seed: 44714,

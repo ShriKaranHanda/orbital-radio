@@ -14,6 +14,7 @@ import {
 import { buildHardwareStates } from "./hardware";
 import { deriveLinkState } from "./link";
 import { deriveSunState } from "./sun";
+import { buildTrafficStates } from "./traffic";
 import type {
   HardwareNominalConstants,
   PhysicalConstants,
@@ -122,6 +123,21 @@ export function buildSimulationFrames(
     physicalConstants,
     nominalConstants,
   );
+  const linkStates = framesWithoutHardware.map((frame, index) =>
+    deriveLinkState(config, physicalConstants, frame.groundStation, hardwareStates[index]),
+  );
+  const trafficStates = buildTrafficStates(
+    framesWithoutHardware.map((frame, index) => ({
+      index: frame.index,
+      currentUnixMs: frame.currentUnixMs,
+      groundStation: frame.groundStation,
+      hardware: hardwareStates[index],
+      link: linkStates[index],
+    })),
+    config,
+    clock,
+    physicalConstants,
+  );
 
   return framesWithoutHardware.map((frame, index) => {
     const hardware = hardwareStates[index];
@@ -129,7 +145,8 @@ export function buildSimulationFrames(
     return {
       ...frame,
       hardware,
-      link: deriveLinkState(config, physicalConstants, frame.groundStation, hardware),
+      link: linkStates[index],
+      traffic: trafficStates[index],
     };
   });
 }

@@ -1,4 +1,4 @@
-import { eciToEcf, gstime } from "satellite.js";
+import { eciToEcf, gstime } from "../satellite";
 import type {
   Cartesian3,
   PhysicalConstants,

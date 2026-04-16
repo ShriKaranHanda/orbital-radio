@@ -210,6 +210,7 @@ export function App() {
           derivedState={visualFrame.groundStation}
           hardwareState={visualFrame.hardware}
           linkState={visualFrame.link}
+          trafficState={visualFrame.traffic}
           onClose={() => setSelectedStation(null)}
         />
       ) : null}

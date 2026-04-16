@@ -5,7 +5,7 @@ import {
   propagate,
   type OMMJsonObject,
   type SatRec,
-} from "satellite.js";
+} from "./satellite";
 import type { Cartesian3, SatelliteFrameState, TleElements } from "../../state";
 
 const METERS_PER_KILOMETER = 1_000;
