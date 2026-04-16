@@ -8,6 +8,7 @@ import {
 } from "react";
 import { DEFAULT_SIMULATION_STATE, type GroundStationConfig, type TleElements } from "../state";
 import { GlobeScene } from "./components/GlobeScene";
+import { CrossLayerInsights } from "./components/CrossLayerInsights";
 import { GroundStationCard } from "./components/GroundStationCard";
 import { SatelliteCard } from "./components/SatelliteCard";
 import { SimulationTimeline } from "./components/SimulationTimeline";
@@ -44,6 +45,7 @@ export function App() {
   const [pendingFrameIndex, setPendingFrameIndex] = useState(0);
   const [visualFrameIndex, setVisualFrameIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [areGraphsVisible, setAreGraphsVisible] = useState(true);
   const pendingFrameIndexRef = useRef(0);
   const playbackIntervalRef = useRef<number | null>(null);
 
@@ -201,7 +203,27 @@ export function App() {
         selectedSatellite={selectedSatellite}
         onGroundStationSelect={handleGroundStationSelect}
         onSatelliteSelect={handleSatelliteSelect}
+        controls={
+          <button
+            type="button"
+            className="scene-control-button"
+            onClick={() => setAreGraphsVisible((current) => !current)}
+            aria-pressed={areGraphsVisible}
+            aria-label={areGraphsVisible ? "Hide graphs" : "Show graphs"}
+          >
+            {areGraphsVisible ? "Hide graphs" : "Show graphs"}
+          </button>
+        }
       />
+
+      {areGraphsVisible ? (
+        <CrossLayerInsights
+          frames={simulationState.frames}
+          pendingFrameIndex={pendingFrameIndex}
+          visualFrameIndex={visualFrameIndex}
+          onFrameInput={handleFrameInput}
+        />
+      ) : null}
 
       {selectedStation ? (
         <GroundStationCard

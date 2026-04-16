@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import {
   AmbientLight,
   BackSide,
@@ -70,6 +70,7 @@ type GlobeSceneProps = {
   selectedSatellite: Satellite | null;
   onGroundStationSelect: (station: GroundStation) => void;
   onSatelliteSelect: (satellite: Satellite) => void;
+  controls?: ReactNode;
 };
 
 type SceneHandles = {
@@ -112,6 +113,7 @@ export function GlobeScene({
   selectedSatellite,
   onGroundStationSelect,
   onSatelliteSelect,
+  controls,
 }: GlobeSceneProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<SceneHandles | null>(null);
@@ -709,14 +711,17 @@ export function GlobeScene({
 
   return (
     <div ref={mountRef} className="globe-scene" aria-label="3D Earth scene">
-      <button
-        type="button"
-        className="scene-control-button"
-        onClick={resetRotationCenter}
-        aria-label="Reset rotation center"
-      >
-        Reset center
-      </button>
+      <div className="scene-control-stack">
+        <button
+          type="button"
+          className="scene-control-button"
+          onClick={resetRotationCenter}
+          aria-label="Reset rotation center"
+        >
+          Reset center
+        </button>
+        {controls}
+      </div>
     </div>
   );
 }
