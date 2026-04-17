@@ -59,7 +59,7 @@ const STRIP_HEIGHT = 18;
 const LANE_WIDTH = 1_000;
 const LANE_HEIGHT = 54;
 const GRID_LINES = [0.2, 0.5, 0.8];
-const DEFAULT_PANEL_WIDTH = 390;
+const DEFAULT_PANEL_WIDTH_FRACTION = 0.5;
 const MIN_PANEL_WIDTH = 320;
 const MAX_PANEL_WIDTH = 760;
 const DIRECTION_COLORS = {
@@ -83,7 +83,7 @@ export function CrossLayerInsights({
   visualFrameIndex,
   onFrameInput,
 }: CrossLayerInsightsProps) {
-  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
+  const [panelWidth, setPanelWidth] = useState(() => getDefaultPanelWidth());
   const resizeStateRef = useRef<{ originX: number; originWidth: number } | null>(null);
 
   const frameCount = frames.length;
@@ -342,6 +342,18 @@ export function CrossLayerInsights({
         </div>
       </div>
     </section>
+  );
+}
+
+function getDefaultPanelWidth() {
+  const availableWidth = Math.max(
+    MIN_PANEL_WIDTH,
+    window.innerWidth - getPageGutter() * 2,
+  );
+  const viewportMaxWidth = Math.min(MAX_PANEL_WIDTH, availableWidth);
+  return clampPanelWidth(
+    Math.floor(availableWidth * DEFAULT_PANEL_WIDTH_FRACTION),
+    viewportMaxWidth,
   );
 }
 

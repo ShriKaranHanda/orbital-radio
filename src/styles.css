@@ -395,7 +395,7 @@ button {
   z-index: 8;
   display: grid;
   gap: 14px;
-  width: var(--insights-panel-width, min(390px, calc(100vw - 32px)));
+  width: var(--insights-panel-width, min(50vw, calc(100vw - 32px)));
   min-width: 320px;
   max-width: min(760px, calc(100vw - (var(--page-gutter) * 2)));
   max-height: min(560px, calc(100vh - var(--timeline-clearance) - 108px));
