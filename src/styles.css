@@ -983,6 +983,14 @@ button {
   text-transform: uppercase;
 }
 
+.traffic-direction-details + .traffic-direction-details {
+  margin-top: 10px;
+}
+
+.traffic-direction-heading {
+  margin: 0 0 8px;
+}
+
 .trace-summary {
   color: var(--muted);
   font-size: 12px;

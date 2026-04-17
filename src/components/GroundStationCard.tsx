@@ -288,48 +288,14 @@ export function GroundStationCard({
           <AccordionItem value="link">
             <AccordionTrigger>Link Budget</AccordionTrigger>
             <AccordionContent>
-              <dl className="detail-list">
-                <Detail label="DL operational" value={linkState.downlink.isOperational ? "Yes" : "No"} />
-                <Detail label="UL operational" value={linkState.uplink.isOperational ? "Yes" : "No"} />
-                <Detail label="DL EIRP" value={formatPowerDbw(linkState.downlink.eirpDbw)} />
-                <Detail label="UL EIRP" value={formatPowerDbw(linkState.uplink.eirpDbw)} />
-                <Detail label="DL RX power" value={formatPowerDbw(linkState.downlink.receivePowerDbw)} />
-                <Detail label="UL RX power" value={formatPowerDbw(linkState.uplink.receivePowerDbw)} />
-                <Detail label="DL raw SNR" value={formatDb(linkState.downlink.rawSnrDb)} />
-                <Detail label="UL raw SNR" value={formatDb(linkState.uplink.rawSnrDb)} />
-                <Detail label="DL eff SNR" value={formatDb(linkState.downlink.effectiveSnrDb)} />
-                <Detail label="UL eff SNR" value={formatDb(linkState.uplink.effectiveSnrDb)} />
-                <Detail label="DL MCS" value={formatMcs(linkState.downlink)} />
-                <Detail label="UL MCS" value={formatMcs(linkState.uplink)} />
-                <Detail label="DL BER" value={formatProbability(linkState.downlink.ber)} />
-                <Detail label="UL BER" value={formatProbability(linkState.uplink.ber)} />
-                <Detail label="DL PER" value={formatProbability(linkState.downlink.per)} />
-                <Detail label="UL PER" value={formatProbability(linkState.uplink.per)} />
-                <Detail
-                  label="DL payload rate"
-                  value={formatBitRate(linkState.downlink.scheduledPayloadRateBps)}
-                />
-                <Detail
-                  label="UL payload rate"
-                  value={formatBitRate(linkState.uplink.scheduledPayloadRateBps)}
-                />
-                <Detail
-                  label="DL packet rate"
-                  value={formatPacketRate(linkState.downlink.serviceRatePacketsPerSecond)}
-                />
-                <Detail
-                  label="UL packet rate"
-                  value={formatPacketRate(linkState.uplink.serviceRatePacketsPerSecond)}
-                />
-                <Detail
-                  label="DL EVM"
-                  value={formatPercent(linkState.downlink.evm.rms)}
-                />
-                <Detail
-                  label="UL EVM"
-                  value={formatPercent(linkState.uplink.evm.rms)}
-                />
-              </dl>
+              <LinkBudgetDirectionDetails
+                label="Downlink"
+                direction={linkState.downlink}
+              />
+              <LinkBudgetDirectionDetails
+                label="Uplink"
+                direction={linkState.uplink}
+              />
             </AccordionContent>
           </AccordionItem>
 
@@ -380,8 +346,8 @@ function TrafficDirectionDetails({
   direction: SimulationTrafficDirectionState;
 }) {
   return (
-    <>
-      <p className="trace-heading">{label}</p>
+    <div className="traffic-direction-details">
+      <p className="traffic-direction-heading trace-heading">{label}</p>
       <dl className="detail-list">
         <Detail label="Offered load" value={`${direction.offeredLoadMbps.toFixed(1)} Mbps`} />
         <Detail
@@ -436,7 +402,40 @@ function TrafficDirectionDetails({
         />
         <Detail label="Max attempts" value={String(direction.maxAttempts)} />
       </dl>
-    </>
+    </div>
+  );
+}
+
+function LinkBudgetDirectionDetails({
+  label,
+  direction,
+}: {
+  label: string;
+  direction: SimulationLinkState["downlink"];
+}) {
+  return (
+    <div className="traffic-direction-details">
+      <p className="traffic-direction-heading trace-heading">{label}</p>
+      <dl className="detail-list">
+        <Detail label="Operational" value={direction.isOperational ? "Yes" : "No"} />
+        <Detail label="EIRP" value={formatPowerDbw(direction.eirpDbw)} />
+        <Detail label="RX power" value={formatPowerDbw(direction.receivePowerDbw)} />
+        <Detail label="Raw SNR" value={formatDb(direction.rawSnrDb)} />
+        <Detail label="Eff SNR" value={formatDb(direction.effectiveSnrDb)} />
+        <Detail label="MCS" value={formatMcs(direction)} />
+        <Detail label="BER" value={formatProbability(direction.ber)} />
+        <Detail label="PER" value={formatProbability(direction.per)} />
+        <Detail
+          label="Payload rate"
+          value={formatBitRate(direction.scheduledPayloadRateBps)}
+        />
+        <Detail
+          label="Packet rate"
+          value={formatPacketRate(direction.serviceRatePacketsPerSecond)}
+        />
+        <Detail label="EVM" value={formatPercent(direction.evm.rms)} />
+      </dl>
+    </div>
   );
 }
 
