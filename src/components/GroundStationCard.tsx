@@ -94,7 +94,7 @@ export function GroundStationCard({
             "location",
             "visibility",
             "pass",
-            "antenna",
+            "tracking",
             "geometry",
             "terminal",
             "link",
@@ -161,39 +161,10 @@ export function GroundStationCard({
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="antenna">
-            <AccordionTrigger>Antenna Setup</AccordionTrigger>
+          <AccordionItem value="tracking">
+            <AccordionTrigger>Antenna Tracking</AccordionTrigger>
             <AccordionContent>
               <dl className="detail-list">
-                <Detail label="Mount type" value={station.antenna.mountType} />
-                <Detail label="Pointing mode" value={station.antenna.pointingMode} />
-                <Detail
-                  label="Antenna azimuth"
-                  value={formatAzimuth(station.antenna.azimuthDeg)}
-                />
-                <Detail
-                  label="Antenna elevation"
-                  value={formatDegrees(station.antenna.elevationDeg)}
-                />
-                <Detail
-                  label="Dish diameter"
-                  value={`${station.antenna.dishDiameterM.toFixed(1)} m`}
-                />
-                <Detail label="Gain" value={`${station.antenna.gainDbi.toFixed(1)} dBi`} />
-                <Detail label="Polarization" value={station.antenna.polarization} />
-              </dl>
-            </AccordionContent>
-          </AccordionItem>
-
-          <AccordionItem value="geometry">
-            <AccordionTrigger>Satellite Geometry</AccordionTrigger>
-            <AccordionContent>
-              <dl className="detail-list">
-                <Detail
-                  label="Look azimuth"
-                  value={formatAzimuth(derivedState.azimuthDeg)}
-                />
-                <Detail label="Elevation" value={formatDegrees(derivedState.elevationDeg)} />
                 <Detail
                   label="Commanded azimuth"
                   value={formatAzimuth(derivedState.commandedAzimuthDeg)}
@@ -211,6 +182,31 @@ export function GroundStationCard({
                   value={formatDegrees(derivedState.trackedElevationDeg)}
                 />
                 <Detail
+                  label="Azimuth error"
+                  value={formatSignedDegrees(derivedState.pointingAzimuthErrorDeg)}
+                />
+                <Detail
+                  label="Elevation error"
+                  value={formatSignedDegrees(derivedState.pointingElevationErrorDeg)}
+                />
+                <Detail
+                  label="Pointing separation"
+                  value={formatDegrees(derivedState.pointingSeparationDeg)}
+                />
+              </dl>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="geometry">
+            <AccordionTrigger>Satellite Geometry</AccordionTrigger>
+            <AccordionContent>
+              <dl className="detail-list">
+                <Detail
+                  label="Look azimuth"
+                  value={formatAzimuth(derivedState.azimuthDeg)}
+                />
+                <Detail label="Elevation" value={formatDegrees(derivedState.elevationDeg)} />
+                <Detail
                   label="Slant range"
                   value={formatDistanceMeters(derivedState.slantRangeM)}
                 />
@@ -226,18 +222,6 @@ export function GroundStationCard({
                   label="Uplink Doppler"
                   value={formatFrequencyHz(derivedState.uplinkDopplerShiftHz)}
                 />
-                <Detail
-                  label="Azimuth error"
-                  value={formatSignedDegrees(derivedState.pointingAzimuthErrorDeg)}
-                />
-                <Detail
-                  label="Elevation error"
-                  value={formatSignedDegrees(derivedState.pointingElevationErrorDeg)}
-                />
-                <Detail
-                  label="Pointing separation"
-                  value={formatDegrees(derivedState.pointingSeparationDeg)}
-                />
               </dl>
               <p className="detail-note">
                 Azimuth is measured from local north and increases clockwise toward east.
@@ -249,14 +233,19 @@ export function GroundStationCard({
             <AccordionTrigger>Terminal Hardware</AccordionTrigger>
             <AccordionContent>
               <dl className="detail-list">
+                {/* TODO: How is the power related to the slant range?  */}
+                {/* TODO: Generally what all is power related to? */}
                 <Detail
                   label="TX power"
                   value={formatPowerDbw(hardwareState.groundTerminal.txPowerDbw)}
                 />
+                {/* TODO: What does this mean? */}
+                {/* TODO: Why measured in dB? */}
                 <Detail
                   label="TX RF loss"
                   value={formatDb(hardwareState.groundTerminal.txRfLossDb)}
                 />
+                {/* TODO: What does this and the TX gain mean? */}
                 <Detail
                   label="Effective RX gain"
                   value={`${hardwareState.groundTerminal.effectiveRxGainDbi.toFixed(2)} dBi`}
@@ -269,6 +258,7 @@ export function GroundStationCard({
                   label="Pointing loss"
                   value={formatDb(hardwareState.groundTerminal.pointingLossDb)}
                 />
+                {/* TODO: What is the noise figure? */}
                 <Detail
                   label="RX noise figure"
                   value={formatDb(hardwareState.groundTerminal.rxNoiseFigureDb)}
@@ -277,6 +267,7 @@ export function GroundStationCard({
                   label="Reference offset"
                   value={formatFrequencyHz(hardwareState.groundTerminal.referenceOffsetHz)}
                 />
+                {/* TODO: What's this? */}
                 <Detail
                   label="TX EVM"
                   value={formatPercent(hardwareState.groundTerminal.txEvmRms)}

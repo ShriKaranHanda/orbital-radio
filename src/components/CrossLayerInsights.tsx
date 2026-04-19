@@ -225,6 +225,7 @@ export function CrossLayerInsights({
             value={formatTimestamp(selectedFrame.currentUnixMs)}
             color="#67d2ff"
           />
+          {/* TODO: How are causes being determined? Shouldn't causes be displayed after a certain error threshold? */}
           <StatusChip
             label="Cause"
             value={formatReasonLabel(selectedFrame.hardware.reason.dominantTag)}

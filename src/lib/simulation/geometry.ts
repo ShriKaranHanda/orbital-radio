@@ -59,6 +59,7 @@ export function deriveGroundStationGeometryState(
     slantRangeM === 0
       ? 0
       : dotProduct(relativeVectorEcefM, satellite.velocityEcefMps) / slantRangeM;
+      // TODO: We should show carrier wave frequency in the card.
   const downlinkDopplerShiftHz = getDopplerShiftHz(
     rangeRateMps,
     radio.downlink.carrierHz,

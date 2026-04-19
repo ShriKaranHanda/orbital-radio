@@ -702,6 +702,7 @@ function deriveOscillatorState(
 ) {
   const scheduleLagFrames = Math.ceil(scheduleDelaySeconds / stepSeconds);
   const delayedFrameIndex = Math.max(0, frameIndex - scheduleLagFrames);
+  // TODO: What's the point of delayed frames?
   const delayedFrame = frames[delayedFrameIndex];
   const absoluteOffsetHz =
     constants.oscillator.baseOffsetHz +
