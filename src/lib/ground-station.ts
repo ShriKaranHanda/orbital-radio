@@ -263,6 +263,7 @@ function subtractVectors(minuend: Cartesian3, subtrahend: Cartesian3): Cartesian
   };
 }
 
+// TODO: Bro what is this?
 export function normalizeDegrees(angleDeg: number) {
   return ((angleDeg % FULL_CIRCLE_DEG) + FULL_CIRCLE_DEG) % FULL_CIRCLE_DEG;
 }

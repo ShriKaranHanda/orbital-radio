@@ -71,7 +71,9 @@ export type GroundStationAntennaConfig = {
   azimuthDeg: number;
   elevationDeg: number;
   dishDiameterM: number;
+  // TODO: Is this amplifier gain?
   gainDbi: number;
+  // TODO: Is polarization currently being taken into account?
   polarization: "RHCP";
 };
 
@@ -219,6 +221,7 @@ export type GroundStationPointingState = {
   trackedElevationDeg: number;
   pointingAzimuthErrorDeg: number;
   pointingElevationErrorDeg: number;
+  // TODO: How is this calculated. Also why is this required if pointing error is already present?
   pointingSeparationDeg: number;
 };
 
@@ -642,6 +645,7 @@ export const DEFAULT_SIMULATION_CONFIG: SimulationConfig = {
   scenario: {
     seed: 44714,
     enabledFaults: [
+      // TODO: Why does this have such little impact?
       {
         id: "array-tile-degradation",
         label: "Antenna tile degradation",
