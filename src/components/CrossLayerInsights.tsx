@@ -8,14 +8,18 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from "react";
-import type { HardwareReasonTag, SimulationFrame } from "../../state";
+import type { SimulationFrame } from "../../state";
 import {
   formatBitRate,
   formatDb,
+  formatDistanceMeters,
   formatFrequencyHz,
+  formatPacketCount,
+  formatPacketRate,
   formatPercent,
   formatProbability,
   formatSeconds,
+  formatSpeedMetersPerSecond,
   formatTimestamp,
 } from "./formatters";
 
@@ -66,16 +70,6 @@ const DIRECTION_COLORS = {
   downlink: "#67d2ff",
   uplink: "#5de0a4",
 } as const;
-const REASON_COLORS: Record<string, string> = {
-  nominal: "#34d399",
-  array_scan_loss: "#38bdf8",
-  field_of_regard: "#f59e0b",
-  freq_error: "#fb7185",
-  pa_backoff: "#f97316",
-  thermal_throttle: "#ef4444",
-  compute_overload: "#a78bfa",
-  power_limited: "#fde047",
-};
 
 export function CrossLayerInsights({
   frames,
@@ -94,8 +88,6 @@ export function CrossLayerInsights({
     [frames, pendingFrameIndex],
   );
   const stripData = useMemo(() => buildStripRows(frames), [frames]);
-  const mcsRows = useMemo(() => buildMcsRows(frames), [frames]);
-  const visibleReasons = useMemo(() => getVisibleReasons(frames), [frames]);
 
   useEffect(() => {
     const clampToViewport = () => {
@@ -190,9 +182,12 @@ export function CrossLayerInsights({
   }
 
   const selectedImpact = getImpactLabel(selectedFrame);
-  const selectedTotalServiceBps =
-    selectedFrame.link.downlink.scheduledPayloadRateBps +
-    selectedFrame.link.uplink.scheduledPayloadRateBps;
+  const selectedTotalGoodputBps =
+    selectedFrame.traffic.downlink.goodputBps + selectedFrame.traffic.uplink.goodputBps;
+  const selectedMaxLossFraction = Math.max(
+    selectedFrame.traffic.downlink.packetLossFraction,
+    selectedFrame.traffic.uplink.packetLossFraction,
+  );
 
   return (
     <section
@@ -225,11 +220,10 @@ export function CrossLayerInsights({
             value={formatTimestamp(selectedFrame.currentUnixMs)}
             color="#67d2ff"
           />
-          {/* TODO: How are causes being determined? Shouldn't causes be displayed after a certain error threshold? */}
           <StatusChip
-            label="Cause"
-            value={formatReasonLabel(selectedFrame.hardware.reason.dominantTag)}
-            color={getReasonColor(selectedFrame.hardware.reason.dominantTag)}
+            label="Link"
+            value={selectedFrame.hardware.steering.linkEnabled ? "Enabled" : "Outage"}
+            color={selectedFrame.hardware.steering.linkEnabled ? "#34d399" : "#ef4444"}
           />
           <StatusChip
             label="Impact"
@@ -237,18 +231,18 @@ export function CrossLayerInsights({
             color={getImpactColor(selectedImpact)}
           />
           <StatusChip
-            label="DL MCS"
-            value={selectedFrame.link.downlink.selectedMcs.label ?? "Outage"}
-            color={getMcsColor(getMcsIndex(selectedFrame.link.downlink.selectedMcs.id))}
+            label="Range"
+            value={formatDistanceMeters(selectedFrame.groundStation.slantRangeM)}
+            color="#38bdf8"
           />
           <StatusChip
-            label="UL MCS"
-            value={selectedFrame.link.uplink.selectedMcs.label ?? "Outage"}
-            color={getMcsColor(getMcsIndex(selectedFrame.link.uplink.selectedMcs.id))}
+            label="Loss"
+            value={formatPercent(selectedMaxLossFraction)}
+            color="#fb7185"
           />
           <StatusChip
-            label="Service"
-            value={formatBitRate(selectedTotalServiceBps)}
+            label="Goodput"
+            value={formatBitRate(selectedTotalGoodputBps)}
             color="#5de0a4"
           />
         </div>
@@ -256,10 +250,9 @@ export function CrossLayerInsights({
 
       <div className="insights-section">
         <div className="insights-section-header">
-          <span>Reason to impact</span>
+          <span>State strips</span>
           <small>
-            Cause, coding pressure, packet loss, and service collapse on a shared
-            time axis.
+            Binary and discrete transitions that make failures obvious at a glance.
           </small>
         </div>
 
@@ -278,30 +271,13 @@ export function CrossLayerInsights({
             />
           ))}
         </div>
-
-        <div className="insights-legend" aria-label="Reason legend">
-          {visibleReasons.map((reason) => (
-            <span key={reason} className="insights-legend-item">
-              <span
-                className="insights-legend-swatch"
-                style={{
-                  backgroundColor: getReasonColor(
-                    reason === "nominal" ? null : reason,
-                  ),
-                }}
-              />
-              {formatReasonLabel(reason === "nominal" ? null : reason)}
-            </span>
-          ))}
-        </div>
       </div>
 
       <div className="insights-section">
         <div className="insights-section-header">
           <span>Metric lanes</span>
           <small>
-            Array, RF, timing, compute, power, SNR, PER, and coding stay aligned
-            to the same second.
+            Ordered from upstream physical drivers down to delivered network outcomes.
           </small>
         </div>
 
@@ -310,29 +286,6 @@ export function CrossLayerInsights({
             <MetricLaneRow
               key={lane.id}
               lane={lane}
-              passMarkers={passMarkers}
-              frameCount={frameCount}
-              pendingFrameIndex={pendingFrameIndex}
-              visualFrameIndex={visualFrameIndex}
-              onFrameInput={onFrameInput}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div className="insights-section">
-        <div className="insights-section-header">
-          <span>MCS tracks</span>
-          <small>Discrete coding shifts for downlink and uplink.</small>
-        </div>
-
-        <div className="strip-stack">
-          {mcsRows.map((row) => (
-            <StripRow
-              key={row.id}
-              label={row.label}
-              value={row.getSelectedValue(selectedFrame)}
-              segments={row.segments}
               passMarkers={passMarkers}
               frameCount={frameCount}
               pendingFrameIndex={pendingFrameIndex}
@@ -629,10 +582,15 @@ function buildMetricLanes(
   frames: readonly SimulationFrame[],
   selectedFrameIndex: number,
 ): MetricLane[] {
-  const arrayGainValues = frames.map((frame) => frame.hardware.phasedArray.arrayGainDbi);
-  const paCompressionValues = frames.map(
-    (frame) => frame.hardware.powerAmplifier.compressionLossDb,
+  const linkEnabledValues = frames.map((frame) => frame.hardware.steering.linkEnabled);
+  const slantRangeValues = frames.map((frame) => frame.groundStation.slantRangeM);
+  const rangeRateValues = frames.map((frame) => frame.groundStation.rangeRateMps);
+  const downlinkEirpValues = frames.map((frame) => frame.link.downlink.eirpDbw);
+  const uplinkEirpValues = frames.map((frame) => frame.link.uplink.eirpDbw);
+  const downlinkReceivePowerValues = frames.map(
+    (frame) => frame.link.downlink.receivePowerDbw,
   );
+  const uplinkReceivePowerValues = frames.map((frame) => frame.link.uplink.receivePowerDbw);
   const residualDownlinkValues = frames.map((frame) =>
     Math.abs(frame.hardware.oscillator.downlinkResidualHz),
   );
@@ -642,14 +600,45 @@ function buildMetricLanes(
   const scheduleDelayValues = frames.map(
     (frame) => frame.hardware.compute.scheduleDelaySeconds,
   );
-  const powerSheddingValues = frames.map((frame) => frame.hardware.powerBus.sheddingFactor);
   const downlinkSnrValues = frames.map((frame) => frame.link.downlink.effectiveSnrDb);
   const uplinkSnrValues = frames.map((frame) => frame.link.uplink.effectiveSnrDb);
   const downlinkPerValues = frames.map((frame) => frame.link.downlink.per);
   const uplinkPerValues = frames.map((frame) => frame.link.uplink.per);
+  const downlinkServiceRateValues = frames.map(
+    (frame) => frame.traffic.downlink.serviceRatePacketsPerSecond,
+  );
+  const uplinkServiceRateValues = frames.map(
+    (frame) => frame.traffic.uplink.serviceRatePacketsPerSecond,
+  );
+  const downlinkQueueValues = frames.map((frame) => frame.traffic.downlink.queueBacklogPackets);
+  const uplinkQueueValues = frames.map((frame) => frame.traffic.uplink.queueBacklogPackets);
+  const downlinkGoodputValues = frames.map((frame) => frame.traffic.downlink.goodputBps);
+  const uplinkGoodputValues = frames.map((frame) => frame.traffic.uplink.goodputBps);
+  const downlinkLossValues = frames.map(
+    (frame) => frame.traffic.downlink.packetLossFraction,
+  );
+  const uplinkLossValues = frames.map((frame) => frame.traffic.uplink.packetLossFraction);
+  const downlinkLatencyValues = frames.map(
+    (frame) => frame.traffic.downlink.meanLatencySeconds ?? 0,
+  );
+  const uplinkLatencyValues = frames.map(
+    (frame) => frame.traffic.uplink.meanLatencySeconds ?? 0,
+  );
+  const downlinkJitterValues = frames.map(
+    (frame) => frame.traffic.downlink.jitterSeconds ?? 0,
+  );
+  const uplinkJitterValues = frames.map((frame) => frame.traffic.uplink.jitterSeconds ?? 0);
 
-  const arrayGainNormalizer = createLinearNormalizer(arrayGainValues);
-  const paCompressionNormalizer = createLinearNormalizer(paCompressionValues, 0, 0.08);
+  const slantRangeNormalizer = createLinearNormalizer(slantRangeValues);
+  const rangeRateNormalizer = createLinearNormalizer(rangeRateValues);
+  const eirpNormalizer = createConditionalLinearNormalizer(
+    [...downlinkEirpValues, ...uplinkEirpValues],
+    [...linkEnabledValues, ...linkEnabledValues],
+  );
+  const receivePowerNormalizer = createConditionalLinearNormalizer(
+    [...downlinkReceivePowerValues, ...uplinkReceivePowerValues],
+    [...linkEnabledValues, ...linkEnabledValues],
+  );
   const residualNormalizer = createLinearNormalizer(
     [...residualDownlinkValues, ...residualUplinkValues],
     0,
@@ -661,35 +650,99 @@ function buildMetricLanes(
     undefined,
     0.08,
   );
+  const serviceRateNormalizer = createLinearNormalizer(
+    [...downlinkServiceRateValues, ...uplinkServiceRateValues],
+    0,
+  );
+  const queueNormalizer = createLinearNormalizer(
+    [...downlinkQueueValues, ...uplinkQueueValues],
+    0,
+  );
+  const goodputNormalizer = createLinearNormalizer(
+    [...downlinkGoodputValues, ...uplinkGoodputValues],
+    0,
+  );
+  const latencyNormalizer = createLinearNormalizer(
+    [...downlinkLatencyValues, ...uplinkLatencyValues],
+    0,
+  );
+  const jitterNormalizer = createLinearNormalizer(
+    [...downlinkJitterValues, ...uplinkJitterValues],
+    0,
+  );
 
   return [
     {
-      id: "array-gain",
-      title: "Array gain",
-      scaleLabel: "dBi",
-      normalizeValue: arrayGainNormalizer,
+      id: "slant-range",
+      title: "Slant range",
+      scaleLabel: "km",
+      normalizeValue: slantRangeNormalizer,
       series: [
         {
-          label: "Array",
+          label: "Range",
           color: "#67d2ff",
-          values: arrayGainValues,
-          currentValue: arrayGainValues[selectedFrameIndex],
-          formatValue: (value) => formatDb(value),
+          values: slantRangeValues,
+          currentValue: slantRangeValues[selectedFrameIndex],
+          formatValue: (value) => formatDistanceMeters(value),
         },
       ],
     },
     {
-      id: "pa-compression",
-      title: "PA compression",
-      scaleLabel: "dB loss",
-      normalizeValue: paCompressionNormalizer,
+      id: "range-rate",
+      title: "Range rate",
+      scaleLabel: "m/s",
+      normalizeValue: rangeRateNormalizer,
       series: [
         {
-          label: "Compression",
-          color: "#f59e0b",
-          values: paCompressionValues,
-          currentValue: paCompressionValues[selectedFrameIndex],
-          formatValue: (value) => formatDb(value),
+          label: "Rate",
+          color: "#38bdf8",
+          values: rangeRateValues,
+          currentValue: rangeRateValues[selectedFrameIndex],
+          formatValue: (value) => formatSpeedMetersPerSecond(value),
+        },
+      ],
+    },
+    {
+      id: "eirp",
+      title: "EIRP",
+      scaleLabel: "dBW",
+      normalizeValue: eirpNormalizer,
+      series: [
+        {
+          label: "DL",
+          color: DIRECTION_COLORS.downlink,
+          values: downlinkEirpValues,
+          currentValue: downlinkEirpValues[selectedFrameIndex],
+          formatValue: (value) => `${value.toFixed(2)} dBW`,
+        },
+        {
+          label: "UL",
+          color: DIRECTION_COLORS.uplink,
+          values: uplinkEirpValues,
+          currentValue: uplinkEirpValues[selectedFrameIndex],
+          formatValue: (value) => `${value.toFixed(2)} dBW`,
+        },
+      ],
+    },
+    {
+      id: "receive-power",
+      title: "Receive power",
+      scaleLabel: "dBW",
+      normalizeValue: receivePowerNormalizer,
+      series: [
+        {
+          label: "DL",
+          color: DIRECTION_COLORS.downlink,
+          values: downlinkReceivePowerValues,
+          currentValue: downlinkReceivePowerValues[selectedFrameIndex],
+          formatValue: (value) => `${value.toFixed(2)} dBW`,
+        },
+        {
+          label: "UL",
+          color: DIRECTION_COLORS.uplink,
+          values: uplinkReceivePowerValues,
+          currentValue: uplinkReceivePowerValues[selectedFrameIndex],
+          formatValue: (value) => `${value.toFixed(2)} dBW`,
         },
       ],
     },
@@ -727,21 +780,6 @@ function buildMetricLanes(
           values: scheduleDelayValues,
           currentValue: scheduleDelayValues[selectedFrameIndex],
           formatValue: (value) => formatSeconds(value),
-        },
-      ],
-    },
-    {
-      id: "power-shedding",
-      title: "Power shedding",
-      scaleLabel: "fraction",
-      normalizeValue: (value) => clamp(value, 0, 1),
-      series: [
-        {
-          label: "Shedding",
-          color: "#fde047",
-          values: powerSheddingValues,
-          currentValue: powerSheddingValues[selectedFrameIndex],
-          formatValue: (value) => formatPercent(value),
         },
       ],
     },
@@ -790,107 +828,167 @@ function buildMetricLanes(
         },
       ],
     },
+    {
+      id: "service-rate",
+      title: "Service rate",
+      scaleLabel: "pps",
+      normalizeValue: serviceRateNormalizer,
+      series: [
+        {
+          label: "DL",
+          color: DIRECTION_COLORS.downlink,
+          values: downlinkServiceRateValues,
+          currentValue: downlinkServiceRateValues[selectedFrameIndex],
+          formatValue: (value) => formatPacketRate(value),
+        },
+        {
+          label: "UL",
+          color: DIRECTION_COLORS.uplink,
+          values: uplinkServiceRateValues,
+          currentValue: uplinkServiceRateValues[selectedFrameIndex],
+          formatValue: (value) => formatPacketRate(value),
+        },
+      ],
+    },
+    {
+      id: "queue-backlog",
+      title: "Queue backlog",
+      scaleLabel: "packets",
+      normalizeValue: queueNormalizer,
+      series: [
+        {
+          label: "DL",
+          color: DIRECTION_COLORS.downlink,
+          values: downlinkQueueValues,
+          currentValue: downlinkQueueValues[selectedFrameIndex],
+          formatValue: (value) => formatPacketCount(value),
+        },
+        {
+          label: "UL",
+          color: DIRECTION_COLORS.uplink,
+          values: uplinkQueueValues,
+          currentValue: uplinkQueueValues[selectedFrameIndex],
+          formatValue: (value) => formatPacketCount(value),
+        },
+      ],
+    },
+    {
+      id: "goodput",
+      title: "Goodput",
+      scaleLabel: "bps",
+      normalizeValue: goodputNormalizer,
+      series: [
+        {
+          label: "DL",
+          color: DIRECTION_COLORS.downlink,
+          values: downlinkGoodputValues,
+          currentValue: downlinkGoodputValues[selectedFrameIndex],
+          formatValue: (value) => formatBitRate(value),
+        },
+        {
+          label: "UL",
+          color: DIRECTION_COLORS.uplink,
+          values: uplinkGoodputValues,
+          currentValue: uplinkGoodputValues[selectedFrameIndex],
+          formatValue: (value) => formatBitRate(value),
+        },
+      ],
+    },
+    {
+      id: "packet-loss",
+      title: "Packet loss",
+      scaleLabel: "fraction",
+      normalizeValue: (value) => clamp(value, 0, 1),
+      series: [
+        {
+          label: "DL",
+          color: DIRECTION_COLORS.downlink,
+          values: downlinkLossValues,
+          currentValue: downlinkLossValues[selectedFrameIndex],
+          formatValue: (value) => formatPercent(value),
+        },
+        {
+          label: "UL",
+          color: DIRECTION_COLORS.uplink,
+          values: uplinkLossValues,
+          currentValue: uplinkLossValues[selectedFrameIndex],
+          formatValue: (value) => formatPercent(value),
+        },
+      ],
+    },
+    {
+      id: "latency",
+      title: "Mean latency",
+      scaleLabel: "seconds",
+      normalizeValue: latencyNormalizer,
+      series: [
+        {
+          label: "DL",
+          color: DIRECTION_COLORS.downlink,
+          values: downlinkLatencyValues,
+          currentValue: downlinkLatencyValues[selectedFrameIndex],
+          formatValue: (value) => formatSeconds(value),
+        },
+        {
+          label: "UL",
+          color: DIRECTION_COLORS.uplink,
+          values: uplinkLatencyValues,
+          currentValue: uplinkLatencyValues[selectedFrameIndex],
+          formatValue: (value) => formatSeconds(value),
+        },
+      ],
+    },
+    {
+      id: "jitter",
+      title: "Jitter",
+      scaleLabel: "seconds",
+      normalizeValue: jitterNormalizer,
+      series: [
+        {
+          label: "DL",
+          color: DIRECTION_COLORS.downlink,
+          values: downlinkJitterValues,
+          currentValue: downlinkJitterValues[selectedFrameIndex],
+          formatValue: (value) => formatSeconds(value),
+        },
+        {
+          label: "UL",
+          color: DIRECTION_COLORS.uplink,
+          values: uplinkJitterValues,
+          currentValue: uplinkJitterValues[selectedFrameIndex],
+          formatValue: (value) => formatSeconds(value),
+        },
+      ],
+    },
   ];
 }
 
 function buildStripRows(frames: readonly SimulationFrame[]) {
-  const maxTotalService =
-    Math.max(
-      ...frames.map(
-        (frame) =>
-          frame.link.downlink.scheduledPayloadRateBps +
-          frame.link.uplink.scheduledPayloadRateBps,
-      ),
-      1,
-    ) || 1;
-
-  const causeValues = frames.map(
-    (frame) => frame.hardware.reason.dominantTag ?? "nominal",
-  );
-  const mcsDropValues = frames.map((frame) => {
-    const downlinkIndex = normalizeMcsIndex(
-      getMcsIndex(frame.link.downlink.selectedMcs.id),
-    );
-    const uplinkIndex = normalizeMcsIndex(
-      getMcsIndex(frame.link.uplink.selectedMcs.id),
-    );
-
-    return 1 - (downlinkIndex + uplinkIndex) / 2;
-  });
-  const perSeverityValues = frames.map((frame) =>
-    Math.pow(Math.max(frame.link.downlink.per, frame.link.uplink.per), 0.25),
-  );
-  const serviceDropValues = frames.map((frame) => {
-    const totalService =
-      frame.link.downlink.scheduledPayloadRateBps +
-      frame.link.uplink.scheduledPayloadRateBps;
-
-    return 1 - clamp(totalService / maxTotalService, 0, 1);
-  });
+  const linkEnabledValues = frames.map((frame) => frame.hardware.steering.linkEnabled);
+  const downlinkMcsValues = frames.map((frame) => getMcsIndex(frame.link.downlink.selectedMcs.id));
+  const uplinkMcsValues = frames.map((frame) => getMcsIndex(frame.link.uplink.selectedMcs.id));
 
   return [
     {
-      id: "cause",
-      label: "Cause",
-      segments: buildCategorySegments(causeValues, (value) =>
-        getReasonColor(value === "nominal" ? null : (value as HardwareReasonTag)),
+      id: "link-enabled",
+      label: "Link enabled",
+      segments: buildCategorySegments(linkEnabledValues, (value) =>
+        value ? "#34d399" : "#ef4444",
       ),
       getSelectedValue: (frame: SimulationFrame) =>
-        formatReasonLabel(frame.hardware.reason.dominantTag),
+        frame.hardware.steering.linkEnabled ? "Enabled" : "Disabled",
     },
-    {
-      id: "mcs-drop",
-      label: "MCS pressure",
-      segments: buildSeveritySegments(mcsDropValues),
-      getSelectedValue: (frame: SimulationFrame) => {
-        const downlinkLabel = frame.link.downlink.selectedMcs.label ?? "Outage";
-        const uplinkLabel = frame.link.uplink.selectedMcs.label ?? "Outage";
-
-        return `DL ${downlinkLabel} / UL ${uplinkLabel}`;
-      },
-    },
-    {
-      id: "per-spike",
-      label: "PER spike",
-      segments: buildSeveritySegments(perSeverityValues),
-      getSelectedValue: (frame: SimulationFrame) =>
-        `Max ${formatProbability(
-          Math.max(frame.link.downlink.per, frame.link.uplink.per),
-        )}`,
-    },
-    {
-      id: "service-drop",
-      label: "Service drop",
-      segments: buildSeveritySegments(serviceDropValues),
-      getSelectedValue: (frame: SimulationFrame) =>
-        formatBitRate(
-          frame.link.downlink.scheduledPayloadRateBps +
-            frame.link.uplink.scheduledPayloadRateBps,
-        ),
-    },
-  ];
-}
-
-function buildMcsRows(frames: readonly SimulationFrame[]) {
-  const downlinkValues = frames.map((frame) =>
-    getMcsIndex(frame.link.downlink.selectedMcs.id),
-  );
-  const uplinkValues = frames.map((frame) =>
-    getMcsIndex(frame.link.uplink.selectedMcs.id),
-  );
-
-  return [
     {
       id: "downlink-mcs",
       label: "Downlink MCS",
-      segments: buildCategorySegments(downlinkValues, getMcsColor),
+      segments: buildCategorySegments(downlinkMcsValues, getMcsColor),
       getSelectedValue: (frame: SimulationFrame) =>
         frame.link.downlink.selectedMcs.label ?? "Outage",
     },
     {
       id: "uplink-mcs",
       label: "Uplink MCS",
-      segments: buildCategorySegments(uplinkValues, getMcsColor),
+      segments: buildCategorySegments(uplinkMcsValues, getMcsColor),
       getSelectedValue: (frame: SimulationFrame) =>
         frame.link.uplink.selectedMcs.label ?? "Outage",
     },
@@ -947,45 +1045,32 @@ function buildCategorySegments<T>(
   return segments;
 }
 
-function buildSeveritySegments(values: readonly number[]): StripSegment[] {
-  const quantizedValues = values.map(
-    (value) => Math.round(clamp(value, 0, 1) * 24) / 24,
-  );
-
-  return buildCategorySegments(quantizedValues, getSeverityColor);
-}
-
-function getVisibleReasons(frames: readonly SimulationFrame[]) {
-  const reasons = new Set<string>(["nominal"]);
-
-  for (const frame of frames) {
-    reasons.add(frame.hardware.reason.dominantTag ?? "nominal");
-  }
-
-  return [...reasons];
-}
-
 function getImpactLabel(frame: SimulationFrame) {
-  const maxPer = Math.max(frame.link.downlink.per, frame.link.uplink.per);
-  const downlinkMcs = getMcsIndex(frame.link.downlink.selectedMcs.id);
-  const uplinkMcs = getMcsIndex(frame.link.uplink.selectedMcs.id);
-  const totalService =
-    frame.link.downlink.scheduledPayloadRateBps +
-    frame.link.uplink.scheduledPayloadRateBps;
+  const maxLoss = Math.max(
+    frame.traffic.downlink.packetLossFraction,
+    frame.traffic.uplink.packetLossFraction,
+  );
+  const totalGoodput =
+    frame.traffic.downlink.goodputBps + frame.traffic.uplink.goodputBps;
+  const totalBacklog =
+    frame.traffic.downlink.queueBacklogPackets + frame.traffic.uplink.queueBacklogPackets;
 
-  if (downlinkMcs === -1 && uplinkMcs === -1) {
+  if (!frame.hardware.steering.linkEnabled) {
     return "Outage";
   }
 
-  if (maxPer >= 0.1) {
+  if (maxLoss >= 0.1) {
     return "Packet loss spike";
   }
 
-  if (frame.hardware.powerBus.sheddingFactor >= 0.2 || totalService === 0) {
-    return "Capacity drop";
+  if (totalBacklog > 0 || totalGoodput === 0) {
+    return "Queue growth";
   }
 
-  if (downlinkMcs <= 1 || uplinkMcs <= 1) {
+  if (
+    frame.link.downlink.selectedMcs.id === null ||
+    frame.link.uplink.selectedMcs.id === null
+  ) {
     return "Link degraded";
   }
 
@@ -998,25 +1083,13 @@ function getImpactColor(label: string) {
       return "#ef4444";
     case "Packet loss spike":
       return "#fb7185";
-    case "Capacity drop":
+    case "Queue growth":
       return "#f59e0b";
     case "Link degraded":
       return "#fde047";
     default:
       return "#34d399";
   }
-}
-
-function getReasonColor(reason: HardwareReasonTag | string | null) {
-  return REASON_COLORS[reason ?? "nominal"] ?? "#94a3b8";
-}
-
-function getSeverityColor(value: number) {
-  const clamped = clamp(value, 0, 1);
-  const hue = 150 - clamped * 150;
-  const lightness = 42 + (1 - clamped) * 10;
-
-  return `hsl(${hue} 82% ${lightness}%)`;
 }
 
 function getMcsIndex(mcsId: string | null) {
@@ -1047,10 +1120,6 @@ function getMcsColor(index: number) {
   return `hsl(${hue} 76% 54%)`;
 }
 
-function formatReasonLabel(reason: HardwareReasonTag | string | null) {
-  return reason ? reason.replaceAll("_", " ") : "nominal";
-}
-
 function createLinearNormalizer(
   values: readonly number[],
   minOverride?: number,
@@ -1064,6 +1133,21 @@ function createLinearNormalizer(
   const paddedSpan = Math.max(paddedMaximum - paddedMinimum, 1e-6);
 
   return (value: number) => clamp((value - paddedMinimum) / paddedSpan, 0, 1);
+}
+
+function createConditionalLinearNormalizer(
+  values: readonly number[],
+  includeMask: readonly boolean[],
+  minOverride?: number,
+  paddingFraction = 0.06,
+) {
+  const filteredValues = values.filter((_, index) => includeMask[index]);
+
+  return createLinearNormalizer(
+    filteredValues.length > 1 ? filteredValues : values,
+    minOverride,
+    paddingFraction,
+  );
 }
 
 function buildLinePath(

@@ -71,7 +71,6 @@ export type GroundStationAntennaConfig = {
   azimuthDeg: number;
   elevationDeg: number;
   dishDiameterM: number;
-  // TODO: Is this amplifier gain?
   gainDbi: number;
   // TODO: Is polarization currently being taken into account?
   polarization: "RHCP";
