@@ -83,6 +83,7 @@ type SceneHandles = {
   stationMarker: Mesh;
   stationPulse: Mesh;
   antennaRay: Line;
+  satelliteLineOfSight: Line;
   elevationArc: Line;
   satelliteMarker: Mesh;
   satelliteGlow: Mesh;
@@ -295,6 +296,18 @@ export function GlobeScene({
     antennaRay.renderOrder = 3;
     earthGroup.add(antennaRay);
 
+    const satelliteLineOfSight = new Line(
+      new BufferGeometry(),
+      new LineBasicMaterial({
+        color: "#f97316",
+        transparent: true,
+        opacity: 0.92,
+        depthWrite: false,
+      }),
+    );
+    satelliteLineOfSight.renderOrder = 3;
+    inertialGroup.add(satelliteLineOfSight);
+
     const elevationArc = new Line(
       new BufferGeometry(),
       new LineBasicMaterial({
@@ -381,6 +394,7 @@ export function GlobeScene({
       stationMarker,
       stationPulse,
       antennaRay,
+      satelliteLineOfSight,
       elevationArc,
       satelliteMarker,
       satelliteGlow,
@@ -685,6 +699,8 @@ export function GlobeScene({
       stationPulse.geometry.dispose();
       antennaRay.geometry.dispose();
       (antennaRay.material as LineBasicMaterial).dispose();
+      satelliteLineOfSight.geometry.dispose();
+      (satelliteLineOfSight.material as LineBasicMaterial).dispose();
       elevationArc.geometry.dispose();
       (elevationArc.material as LineBasicMaterial).dispose();
       satelliteMarker.geometry.dispose();
@@ -798,6 +814,20 @@ function applyFrameToScene(
           elevationDeg: frame.groundStation.trackedElevationDeg,
         },
       ),
+      3,
+    ),
+  );
+  handles.satelliteLineOfSight.geometry.setAttribute(
+    "position",
+    new Float32BufferAttribute(
+      [
+        handles.satelliteMarker.position.x,
+        handles.satelliteMarker.position.y,
+        handles.satelliteMarker.position.z,
+        stationPosition.x,
+        stationPosition.y,
+        stationPosition.z,
+      ],
       3,
     ),
   );
