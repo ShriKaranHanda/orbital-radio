@@ -83,7 +83,7 @@ type SceneHandles = {
   stationMarker: Mesh;
   stationPulse: Mesh;
   antennaRay: Line;
-  satelliteLineOfSight: Line;
+  satelliteBeamRay: Line;
   elevationArc: Line;
   satelliteMarker: Mesh;
   satelliteGlow: Mesh;
@@ -102,6 +102,7 @@ const SATELLITE_GLOW_RADIUS = 0.19;
 const GROUND_STATION_MARKER_RADIUS = SATELLITE_MARKER_RADIUS;
 const GROUND_STATION_PULSE_RADIUS = 0.19;
 const DEFAULT_ROTATION_CENTER = new Vector3(0, 0, 0);
+const SATELLITE_RAY_LENGTH = 0.38;
 
 export function GlobeScene({
   clock,
@@ -136,7 +137,13 @@ export function GlobeScene({
 
   useEffect(() => {
     currentFrameRef.current = frame;
-    applyFrameToScene(sceneRef.current, clock, physicalConstants, groundStation, frame);
+    applyFrameToScene(
+      sceneRef.current,
+      clock,
+      physicalConstants,
+      groundStation,
+      frame,
+    );
   }, [clock, frame, groundStation, physicalConstants]);
 
   useEffect(() => {
@@ -296,17 +303,18 @@ export function GlobeScene({
     antennaRay.renderOrder = 3;
     earthGroup.add(antennaRay);
 
-    const satelliteLineOfSight = new Line(
+    const satelliteBeamRay = new Line(
       new BufferGeometry(),
       new LineBasicMaterial({
         color: "#f97316",
         transparent: true,
-        opacity: 0.92,
+        opacity: 0.96,
+        depthTest: false,
         depthWrite: false,
       }),
     );
-    satelliteLineOfSight.renderOrder = 3;
-    inertialGroup.add(satelliteLineOfSight);
+    satelliteBeamRay.renderOrder = 3;
+    inertialGroup.add(satelliteBeamRay);
 
     const elevationArc = new Line(
       new BufferGeometry(),
@@ -339,9 +347,9 @@ export function GlobeScene({
     const satellitePath = new Line(
       new BufferGeometry(),
       new LineBasicMaterial({
-        color: "#f59e0b",
+        color: "#94a3b8",
         transparent: true,
-        opacity: 0.5,
+        opacity: 0.22,
         depthWrite: false,
       }),
     );
@@ -394,7 +402,7 @@ export function GlobeScene({
       stationMarker,
       stationPulse,
       antennaRay,
-      satelliteLineOfSight,
+      satelliteBeamRay,
       elevationArc,
       satelliteMarker,
       satelliteGlow,
@@ -699,8 +707,8 @@ export function GlobeScene({
       stationPulse.geometry.dispose();
       antennaRay.geometry.dispose();
       (antennaRay.material as LineBasicMaterial).dispose();
-      satelliteLineOfSight.geometry.dispose();
-      (satelliteLineOfSight.material as LineBasicMaterial).dispose();
+      satelliteBeamRay.geometry.dispose();
+      (satelliteBeamRay.material as LineBasicMaterial).dispose();
       elevationArc.geometry.dispose();
       (elevationArc.material as LineBasicMaterial).dispose();
       satelliteMarker.geometry.dispose();
@@ -817,22 +825,70 @@ function applyFrameToScene(
       3,
     ),
   );
-  handles.satelliteLineOfSight.geometry.setAttribute(
+  handles.stationMarker.getWorldPosition(handles.stationWorldPosition);
+  handles.satelliteMarker.getWorldPosition(handles.satelliteWorldPosition);
+
+  const boresightDirection = handles.satelliteWorldPosition.clone().multiplyScalar(-1).normalize();
+  const targetDirection = handles.stationWorldPosition
+    .clone()
+    .sub(handles.satelliteWorldPosition)
+    .normalize();
+  const beamDirection = getClippedBeamDirection(
+    boresightDirection,
+    targetDirection,
+    frame.hardware.steering.fieldOfRegardDeg,
+  );
+  const beamStart = handles.satelliteWorldPosition.clone().add(
+    beamDirection.clone().multiplyScalar(SATELLITE_MARKER_RADIUS * 1.1),
+  );
+  const beamEnd = beamStart.clone().add(
+    beamDirection.multiplyScalar(SATELLITE_RAY_LENGTH),
+  );
+  handles.satelliteBeamRay.geometry.setAttribute(
     "position",
     new Float32BufferAttribute(
       [
-        handles.satelliteMarker.position.x,
-        handles.satelliteMarker.position.y,
-        handles.satelliteMarker.position.z,
-        stationPosition.x,
-        stationPosition.y,
-        stationPosition.z,
+        beamStart.x,
+        beamStart.y,
+        beamStart.z,
+        beamEnd.x,
+        beamEnd.y,
+        beamEnd.z,
       ],
       3,
     ),
   );
-  handles.stationMarker.getWorldPosition(handles.stationWorldPosition);
-  handles.satelliteMarker.getWorldPosition(handles.satelliteWorldPosition);
+}
+
+function getClippedBeamDirection(
+  boresightDirection: Vector3,
+  targetDirection: Vector3,
+  fieldOfRegardDeg: number,
+) {
+  const clampedDot = Math.max(-1, Math.min(1, boresightDirection.dot(targetDirection)));
+  const targetAngleRad = Math.acos(clampedDot);
+  const fieldOfRegardRad = (fieldOfRegardDeg * Math.PI) / 180;
+
+  if (targetAngleRad <= fieldOfRegardRad) {
+    return targetDirection;
+  }
+
+  const tangentDirection = targetDirection
+    .clone()
+    .sub(boresightDirection.clone().multiplyScalar(clampedDot));
+  const tangentLength = tangentDirection.length();
+
+  if (tangentLength <= 1e-6) {
+    return boresightDirection;
+  }
+
+  tangentDirection.divideScalar(tangentLength);
+
+  return boresightDirection
+    .clone()
+    .multiplyScalar(Math.cos(fieldOfRegardRad))
+    .add(tangentDirection.multiplyScalar(Math.sin(fieldOfRegardRad)))
+    .normalize();
 }
 
 function createStarField() {
