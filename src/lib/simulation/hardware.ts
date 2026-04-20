@@ -519,7 +519,7 @@ function deriveSteeringState(
   groundStationEcef: { x: number; y: number; z: number },
   constants: HardwareModelConstants,
 ) {
-  const arrayBoresight = scaleVector(
+  const normalizedArrayBoresight = scaleVector(
     normalizeVector(satellite.positionEcefM),
     -1,
   );
@@ -527,7 +527,7 @@ function deriveSteeringState(
     subtractVectors(groundStationEcef, satellite.positionEcefM),
   );
   const steeringAngleDeg =
-    Math.acos(clamp(dotProduct(arrayBoresight, lineOfSight), -1, 1)) * RAD_TO_DEG;
+    Math.acos(clamp(dotProduct(normalizedArrayBoresight, lineOfSight), -1, 1)) * RAD_TO_DEG;
   const clearsFieldOfRegard = steeringAngleDeg <= constants.fieldOfRegardDeg;
 
   return {
@@ -537,7 +537,6 @@ function deriveSteeringState(
     linkEnabled: groundStation.inPass && clearsFieldOfRegard,
   };
 }
-
 function deriveGroundTerminalState(
   groundStation: GroundStationConfig,
   groundStationState: GroundStationDerivedState,
